@@ -100,9 +100,16 @@ export function ScannerComponent({ onScanned }: ScannerComponentProps) {
 
   // Check if scanner/camera is available
   useEffect(() => {
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      setScannerAvailable(true)
+    const checkMediaDevices = async () => {
+      try {
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
+          setScannerAvailable(true)
+        }
+      } catch (error) {
+        setScannerAvailable(false)
+      }
     }
+    checkMediaDevices()
   }, [])
 
   return (
