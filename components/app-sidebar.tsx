@@ -14,6 +14,7 @@ import {
   ChevronRight,
   MoreHorizontal,
   Folder,
+  Handshake,
 } from "lucide-react"
 
 import {
@@ -55,7 +56,7 @@ const mainNavItems = [
   },
   {
     title: "Ֆինանսներ",
-    url: "/dashboard/finances",
+    url: "/dashboard/finance",
     icon: DollarSign,
   },
   {
@@ -72,6 +73,11 @@ const mainNavItems = [
     title: "Պահեստ",
     url: "/dashboard/warehouse",
     icon: Warehouse,
+  },
+  {
+    title: "Գործընկերներ",
+    url: "/dashboard/partners",
+    icon: Handshake,
   },
   {
     title: "Փաստաթղթեր",
