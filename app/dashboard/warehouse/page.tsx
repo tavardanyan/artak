@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,11 +36,13 @@ interface Warehouse {
 }
 
 export default function WarehousePage() {
+  const searchParams = useSearchParams()
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [selectedWarehouse, setSelectedWarehouse] = useState<Warehouse | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [initialTransferData, setInitialTransferData] = useState<any>(null)
   const { toast } = useToast()
 
   // Form state for new warehouse
@@ -189,7 +192,38 @@ export default function WarehousePage() {
 
   useEffect(() => {
     fetchWarehouses()
+
+    // Check for pending transfer data from sessionStorage
+    const pendingTransfer = sessionStorage.getItem('pendingTransfer')
+    if (pendingTransfer) {
+      try {
+        const transferData = JSON.parse(pendingTransfer)
+        setInitialTransferData(transferData)
+        sessionStorage.removeItem('pendingTransfer')
+
+        // If there's a warehouse ID in the URL, select it
+        const warehouseIdParam = searchParams.get('id')
+        if (warehouseIdParam) {
+          const warehouseId = parseInt(warehouseIdParam)
+          // The warehouse will be selected when warehouses are loaded
+        }
+      } catch (error) {
+        console.error('Error parsing pending transfer data:', error)
+      }
+    }
   }, [])
+
+  // Select warehouse from URL parameter when warehouses are loaded
+  useEffect(() => {
+    const warehouseIdParam = searchParams.get('id')
+    if (warehouseIdParam && warehouses.length > 0 && !selectedWarehouse) {
+      const warehouseId = parseInt(warehouseIdParam)
+      const warehouse = warehouses.find(w => w.id === warehouseId)
+      if (warehouse) {
+        setSelectedWarehouse(warehouse)
+      }
+    }
+  }, [warehouses, searchParams])
 
   const getTypeLabel = (type: string) => {
     const types: Record<string, string> = {
@@ -374,8 +408,10 @@ export default function WarehousePage() {
             </div>
 
             <WarehouseContent
+              key={`${selectedWarehouse.id}-${initialTransferData ? 'with-data' : 'no-data'}`}
               warehouseId={selectedWarehouse.id}
               warehouseName={selectedWarehouse.name}
+              initialTransferData={initialTransferData}
             />
           </div>
         ) : (

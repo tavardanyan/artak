@@ -45,6 +45,7 @@ interface Partner {
   account?: { name: string; currency: string }
   warehouse?: { name: string }
   account_balance?: number
+  pending_balance?: number
 }
 
 export default function PartnersPage() {
@@ -103,13 +104,14 @@ export default function PartnersPage() {
           if (partner.account_id) {
             const { data: balanceData } = await supabase
               .from("account_balance")
-              .select("balance")
+              .select("balance, pending_balance")
               .eq("account_id", partner.account_id)
               .single()
 
             return {
               ...partner,
-              account_balance: balanceData?.balance || 0
+              account_balance: balanceData?.balance || 0,
+              pending_balance: balanceData?.pending_balance || 0
             }
           }
           return partner
@@ -328,6 +330,7 @@ export default function PartnersPage() {
                   <TableHead>Տեսակ</TableHead>
                   <TableHead>Հաշիվ</TableHead>
                   <TableHead>Մնացորդ</TableHead>
+                  <TableHead>Ընթացիկ մնացորդ</TableHead>
                   <TableHead>Պահեստ</TableHead>
                 </TableRow>
               </TableHeader>
@@ -348,6 +351,12 @@ export default function PartnersPage() {
                     <TableCell className="font-medium">
                       {partner.account_id
                         ? formatCurrency(partner.account_balance, partner.account?.currency)
+                        : "-"
+                      }
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {partner.account_id
+                        ? formatCurrency(partner.pending_balance, partner.account?.currency)
                         : "-"
                       }
                     </TableCell>

@@ -108,9 +108,17 @@ interface NewTransferItem {
 interface WarehouseContentProps {
   warehouseId: number
   warehouseName: string
+  initialTransferData?: {
+    fromWarehouse?: number
+    toWarehouse?: number
+    createTransaction?: boolean
+    fromAccount?: number
+    toAccount?: number
+    openDrawer?: boolean
+  }
 }
 
-export function WarehouseContent({ warehouseId, warehouseName }: WarehouseContentProps) {
+export function WarehouseContent({ warehouseId, warehouseName, initialTransferData }: WarehouseContentProps) {
   const [transfers, setTransfers] = useState<Transfer[]>([])
   const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>([])
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null)
@@ -125,7 +133,7 @@ export function WarehouseContent({ warehouseId, warehouseName }: WarehouseConten
   // Create transfer state
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [items, setItems] = useState<Item[]>([])
-  const [accounts, setAccounts] = useState<{ id: number; name: string; currency: string }[]>([])
+  const [accounts, setAccounts] = useState<{ id: number; name: string; currency: string; internal: boolean }[]>([])
   const [fromWarehouse, setFromWarehouse] = useState<number>(warehouseId)
   const [toWarehouse, setToWarehouse] = useState<number | null>(null)
   const [newTransferItems, setNewTransferItems] = useState<NewTransferItem[]>([
@@ -404,7 +412,7 @@ export function WarehouseContent({ warehouseId, warehouseName }: WarehouseConten
     try {
       const { data, error } = await supabase
         .from("account")
-        .select("id, name, currency")
+        .select("id, name, currency, internal")
         .order("name")
 
       if (error) throw error
@@ -602,8 +610,26 @@ export function WarehouseContent({ warehouseId, warehouseName }: WarehouseConten
     fetchAccounts()
   }, [warehouseId])
 
-  // Auto-enable transaction creation if from or to warehouse is partner type
+  // Handle initial transfer data from props
   useEffect(() => {
+    if (initialTransferData && warehouses.length > 0) {
+      if (initialTransferData.fromWarehouse) setFromWarehouse(initialTransferData.fromWarehouse)
+      if (initialTransferData.toWarehouse) setToWarehouse(initialTransferData.toWarehouse)
+      if (initialTransferData.createTransaction !== undefined) setCreateTransaction(initialTransferData.createTransaction)
+      if (initialTransferData.fromAccount) setFromAccount(initialTransferData.fromAccount)
+      if (initialTransferData.toAccount) setToAccount(initialTransferData.toAccount)
+      if (initialTransferData.openDrawer) {
+        // Small delay to ensure all state is set before opening drawer
+        setTimeout(() => setIsCreateTransferDrawerOpen(true), 100)
+      }
+    }
+  }, [initialTransferData, warehouses])
+
+  // Auto-enable transaction creation if from or to warehouse is partner type
+  // But don't override if we have initial transfer data
+  useEffect(() => {
+    if (initialTransferData) return // Don't auto-enable if we have initial data
+
     const fromWh = warehouses.find(w => w.id === fromWarehouse)
     const toWh = warehouses.find(w => w.id === toWarehouse)
 
@@ -612,7 +638,7 @@ export function WarehouseContent({ warehouseId, warehouseName }: WarehouseConten
     } else {
       setCreateTransaction(false)
     }
-  }, [fromWarehouse, toWarehouse, warehouses])
+  }, [fromWarehouse, toWarehouse, warehouses, initialTransferData])
 
   // Auto-select "to" account based on "to" warehouse's partner account
   useEffect(() => {
@@ -1120,11 +1146,13 @@ export function WarehouseContent({ warehouseId, warehouseName }: WarehouseConten
                           <SelectValue placeholder="Ընտրեք հաշիվը" />
                         </SelectTrigger>
                         <SelectContent>
-                          {accounts.map((account) => (
-                            <SelectItem key={account.id} value={account.id.toString()}>
-                              {account.name} ({account.currency.toUpperCase()})
-                            </SelectItem>
-                          ))}
+                          {accounts
+                            .filter(account => account.internal)
+                            .map((account) => (
+                              <SelectItem key={account.id} value={account.id.toString()}>
+                                {account.name} ({account.currency.toUpperCase()})
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                     </div>

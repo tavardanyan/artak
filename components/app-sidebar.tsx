@@ -15,6 +15,7 @@ import {
   MoreHorizontal,
   Folder,
   Handshake,
+  Plus,
 } from "lucide-react"
 
 import {
@@ -40,8 +41,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
 import { useRouter, usePathname } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { CreateOrderDrawer } from "@/components/create-order-drawer"
+import { CreateTransactionDrawer } from "@/components/create-transaction-drawer"
 
 const mainNavItems = [
   {
@@ -112,11 +116,26 @@ export function AppSidebar() {
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createClient()
+  const [isOrderDrawerOpen, setIsOrderDrawerOpen] = React.useState(false)
+  const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = React.useState(false)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push("/login")
     router.refresh()
+  }
+
+  const handlePartnerSelected = (partnerId: number, warehouseId: number, accountId: number) => {
+    // Store the transfer data in sessionStorage to pass to the warehouse page
+    sessionStorage.setItem('pendingTransfer', JSON.stringify({
+      fromWarehouse: warehouseId,
+      toWarehouse: null,
+      createTransaction: true,
+      fromAccount: null,
+      toAccount: accountId,
+      openDrawer: true
+    }))
+    router.push(`/dashboard/warehouse?id=${warehouseId}`)
   }
 
   return (
@@ -135,6 +154,24 @@ export function AppSidebar() {
                 </div>
               </a>
             </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="w-full" size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Ստեղծել
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuItem onClick={() => setIsOrderDrawerOpen(true)}>
+                  Գնում
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsTransactionDrawerOpen(true)}>
+                  Ստեղծել գործարք
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
@@ -224,6 +261,19 @@ export function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+
+      {/* Order Creation Drawer */}
+      <CreateOrderDrawer
+        open={isOrderDrawerOpen}
+        onOpenChange={setIsOrderDrawerOpen}
+        onPartnerSelected={handlePartnerSelected}
+      />
+
+      {/* Transaction Creation Drawer */}
+      <CreateTransactionDrawer
+        open={isTransactionDrawerOpen}
+        onOpenChange={setIsTransactionDrawerOpen}
+      />
     </Sidebar>
   )
 }
