@@ -987,7 +987,7 @@ function CreateContractDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="overflow-y-auto sm:max-w-[50vw]">
         <SheetHeader>
           <SheetTitle>Ստեղծել պայմանագիր</SheetTitle>
           <SheetDescription>
@@ -1251,7 +1251,7 @@ function EditContractDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="overflow-y-auto sm:max-w-[50vw]">
         <SheetHeader>
           <SheetTitle>Խմբագրել պայմանագիրը</SheetTitle>
           <SheetDescription>
