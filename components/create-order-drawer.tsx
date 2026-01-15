@@ -58,6 +58,7 @@ export function CreateOrderDrawer({ open, onOpenChange, onPartnerSelected }: Cre
           warehouse:warehouse_id(name),
           account:account_id(name, currency)
         `)
+        .eq("type", "supplier")
         .not("warehouse_id", "is", null)
         .not("account_id", "is", null)
         .order("name")

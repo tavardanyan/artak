@@ -23,15 +23,15 @@ interface Person {
   account_id: number | null
 }
 
-function StaffCard({ staff }: { staff: Person }) {
-  const fullName = `${staff.first_name} ${staff.last_lame || ""}`.trim()
-  const initials = `${staff.first_name[0]}${staff.last_lame?.[0] || ""}`.toUpperCase()
+function ContactCard({ contact }: { contact: Person }) {
+  const fullName = `${contact.first_name} ${contact.last_lame || ""}`.trim()
+  const initials = `${contact.first_name[0]}${contact.last_lame?.[0] || ""}`.toUpperCase()
 
   return (
     <Card className="w-full hover:bg-accent/50 transition-colors">
       <CardContent className="flex items-center gap-6 p-6">
         <Avatar className="h-16 w-16">
-          <AvatarFallback className="text-lg bg-primary/10">
+          <AvatarFallback className="text-lg bg-secondary/10">
             {initials}
           </AvatarFallback>
         </Avatar>
@@ -40,30 +40,30 @@ function StaffCard({ staff }: { staff: Person }) {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold">{fullName}</h3>
-              {staff.position && (
-                <p className="text-sm text-muted-foreground">{staff.position}</p>
+              {contact.position && (
+                <p className="text-sm text-muted-foreground">{contact.position}</p>
               )}
             </div>
-            <Badge variant="default">Աշխատակից</Badge>
+            <Badge variant="secondary">Կոնտակտ</Badge>
           </div>
 
           <div className="grid gap-2 sm:grid-cols-3">
-            {staff.phone && (
+            {contact.phone && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-muted-foreground" />
-                <span>{staff.phone}</span>
+                <span>{contact.phone}</span>
               </div>
             )}
-            {staff.email && (
+            {contact.email && (
               <div className="flex items-center gap-2 text-sm">
                 <Mail className="h-4 w-4 text-muted-foreground" />
-                <span className="truncate">{staff.email}</span>
+                <span className="truncate">{contact.email}</span>
               </div>
             )}
-            {staff.address && (
+            {contact.address && (
               <div className="flex items-center gap-2 text-sm">
                 <MapPin className="h-4 w-4 text-muted-foreground" />
-                <span>{staff.address}</span>
+                <span>{contact.address}</span>
               </div>
             )}
           </div>
@@ -73,33 +73,33 @@ function StaffCard({ staff }: { staff: Person }) {
   )
 }
 
-export default function StaffPage() {
-  const [staff, setStaff] = useState<Person[]>([])
+export default function ContactsPage() {
+  const [contacts, setContacts] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
 
   useEffect(() => {
-    fetchStaff()
+    fetchContacts()
   }, [])
 
-  const fetchStaff = async () => {
+  const fetchContacts = async () => {
     try {
       setLoading(true)
       const { data, error } = await supabase
         .from("person")
         .select("*")
-        .eq("type", "staff")
+        .eq("type", "contact")
         .order("first_name")
 
       if (error) throw error
-      setStaff(data || [])
+      setContacts(data || [])
     } catch (error) {
-      console.error("Error fetching staff:", error)
+      console.error("Error fetching contacts:", error)
       toast({
         title: "Սխալ",
-        description: "Չհաջողվեց բեռնել աշխատակազմի ցանկը",
+        description: "Չհաջողվեց բեռնել կոնտակտների ցանկը",
         variant: "destructive",
       })
     } finally {
@@ -111,14 +111,14 @@ export default function StaffPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Աշխատակազմ</h2>
+          <h2 className="text-3xl font-bold tracking-tight">Կոնտակտներ</h2>
           <p className="text-muted-foreground">
-            Կառավարեք ձեր աշխատակազմի անդամներին
+            Կառավարեք ձեր կոնտակտների ցանկը
           </p>
         </div>
         <Button onClick={() => setIsDrawerOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Ավելացնել աշխատակից
+          Ավելացնել կոնտակտ
         </Button>
       </div>
 
@@ -126,18 +126,18 @@ export default function StaffPage() {
         <div className="flex items-center justify-center h-96">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : staff.length === 0 ? (
+      ) : contacts.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-96 text-center">
-          <p className="text-muted-foreground mb-4">Աշխատակիցներ չկան</p>
+          <p className="text-muted-foreground mb-4">Կոնտակտներ չկան</p>
           <Button onClick={() => setIsDrawerOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            Ավելացնել առաջին աշխատակիցը
+            Ավելացնել առաջին կոնտակտը
           </Button>
         </div>
       ) : (
         <div className="space-y-4">
-          {staff.map((person) => (
-            <StaffCard key={person.id} staff={person} />
+          {contacts.map((person) => (
+            <ContactCard key={person.id} contact={person} />
           ))}
         </div>
       )}
@@ -145,8 +145,8 @@ export default function StaffPage() {
       <CreatePersonDrawer
         open={isDrawerOpen}
         onOpenChange={setIsDrawerOpen}
-        type="staff"
-        onSuccess={fetchStaff}
+        type="contact"
+        onSuccess={fetchContacts}
       />
     </div>
   )

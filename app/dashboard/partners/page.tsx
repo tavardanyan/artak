@@ -254,6 +254,7 @@ export default function PartnersPage() {
       client: "Հաճախորդ",
       supplier: "Մատակարար",
       contractor: "Կապալառու",
+      customer: "Պատվիրատու",
       other: "Այլ",
     }
     return types[type] || type
@@ -264,6 +265,7 @@ export default function PartnersPage() {
       client: "default",
       supplier: "secondary",
       contractor: "outline",
+      customer: "default",
       other: "outline",
     }
     return variants[type] || "outline"
@@ -424,6 +426,7 @@ export default function PartnersPage() {
                     <SelectItem value="client">Հաճախորդ</SelectItem>
                     <SelectItem value="supplier">Մատակարար</SelectItem>
                     <SelectItem value="contractor">Կապալառու</SelectItem>
+                    <SelectItem value="customer">Պատվիրատու</SelectItem>
                     <SelectItem value="other">Այլ</SelectItem>
                   </SelectContent>
                 </Select>

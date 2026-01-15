@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -35,7 +35,7 @@ interface Warehouse {
   type: string
 }
 
-export default function WarehousePage() {
+function WarehousePageContent() {
   const searchParams = useSearchParams()
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [selectedWarehouse, setSelectedWarehouse] = useState<Warehouse | null>(null)
@@ -495,5 +495,17 @@ export default function WarehousePage() {
         </SheetContent>
       </Sheet>
     </div>
+  )
+}
+
+export default function WarehousePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
+        <p className="text-muted-foreground">Բեռնում...</p>
+      </div>
+    }>
+      <WarehousePageContent />
+    </Suspense>
   )
 }

@@ -30,6 +30,19 @@ interface Account {
   currency: string
 }
 
+interface Contract {
+  id: number
+  description: string
+  person_id: number
+  status: string
+  total: number
+}
+
+interface Person {
+  id: number
+  account_id: number
+}
+
 interface CreateTransactionDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -38,19 +51,24 @@ interface CreateTransactionDrawerProps {
 
 export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: CreateTransactionDrawerProps) {
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [contracts, setContracts] = useState<Contract[]>([])
+  const [persons, setPersons] = useState<Person[]>([])
   const [transactionType, setTransactionType] = useState<"incoming" | "outgoing">("outgoing")
   const [fromAccount, setFromAccount] = useState<string>("")
   const [toAccount, setToAccount] = useState<string>("")
+  const [selectedContract, setSelectedContract] = useState<string>("")
   const [amount, setAmount] = useState<string>("")
   const [note, setNote] = useState<string>("")
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [showContractSelect, setShowContractSelect] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
 
   useEffect(() => {
     if (open) {
       fetchAccounts()
+      fetchPersons()
       resetForm()
     }
   }, [open])
@@ -77,12 +95,70 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
     }
   }
 
+  const fetchPersons = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("person")
+        .select("id, account_id")
+        .not("account_id", "is", null)
+
+      if (error) throw error
+      setPersons(data || [])
+    } catch (error) {
+      console.error("Error fetching persons:", error)
+    }
+  }
+
+  const fetchContracts = async (personId: number) => {
+    try {
+      const { data, error } = await supabase
+        .from("contract")
+        .select("id, description, person_id, status, total")
+        .eq("person_id", personId)
+        .eq("status", "in progress")
+        .order("created_at", { ascending: false })
+
+      if (error) throw error
+      setContracts(data || [])
+    } catch (error) {
+      console.error("Error fetching contracts:", error)
+      toast({
+        title: "Սխալ",
+        description: "Չհաջողվեց բեռնել պայմանագրերի ցանկը",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Check if selected to-account has an associated person and fetch contracts
+  useEffect(() => {
+    if (toAccount) {
+      // Find person who has this account_id
+      const person = persons.find(p => p.account_id.toString() === toAccount)
+      if (person) {
+        setShowContractSelect(true)
+        fetchContracts(person.id)
+      } else {
+        setShowContractSelect(false)
+        setContracts([])
+        setSelectedContract("")
+      }
+    } else {
+      setShowContractSelect(false)
+      setContracts([])
+      setSelectedContract("")
+    }
+  }, [toAccount, persons])
+
   const resetForm = () => {
     setTransactionType("outgoing")
     setFromAccount("")
     setToAccount("")
+    setSelectedContract("")
     setAmount("")
     setNote("")
+    setShowContractSelect(false)
+    setContracts([])
   }
 
   const handleSubmit = async () => {
@@ -116,7 +192,9 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
 
     try {
       setSubmitting(true)
-      const { error } = await supabase
+
+      // Create transaction
+      const { data: transactionData, error: transactionError } = await supabase
         .from("transaction")
         .insert({
           from: parseInt(fromAccount),
@@ -124,8 +202,22 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
           amount: amountNum,
           note: note || null,
         })
+        .select()
+        .single()
 
-      if (error) throw error
+      if (transactionError) throw transactionError
+
+      // If contract is selected, create contract_transaction record
+      if (selectedContract && showContractSelect) {
+        const { error: contractTransactionError } = await supabase
+          .from("contract_transaction")
+          .insert({
+            contact_id: parseInt(selectedContract),
+            transaction_id: transactionData.id,
+          })
+
+        if (contractTransactionError) throw contractTransactionError
+      }
 
       toast({
         title: "Հաջողություն",
@@ -233,6 +325,37 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
               </SelectContent>
             </Select>
           </div>
+
+          {/* Contract Selection - shown only if to-account has person_id */}
+          {showContractSelect && (
+            <div className="space-y-2">
+              <Label>Պայմանագիր (ոչ պարտադիր)</Label>
+              <Select value={selectedContract} onValueChange={setSelectedContract}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Ընտրեք պայմանագիրը" />
+                </SelectTrigger>
+                <SelectContent>
+                  {contracts.length === 0 ? (
+                    <SelectItem value="empty" disabled>
+                      Ընթացքի մեջ պայմանագրեր չկան
+                    </SelectItem>
+                  ) : (
+                    contracts.map((contract) => (
+                      <SelectItem key={contract.id} value={contract.id.toString()}>
+                        {contract.description.substring(0, 50)}
+                        {contract.description.length > 50 ? "..." : ""}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              {contracts.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Միայն "Ընթացքի մեջ" վիճակով պայմանագրերը
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Amount */}
           <div className="space-y-2">

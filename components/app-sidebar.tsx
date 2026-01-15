@@ -16,6 +16,7 @@ import {
   Folder,
   Handshake,
   Plus,
+  Contact,
 } from "lucide-react"
 
 import {
@@ -46,6 +47,7 @@ import { useRouter, usePathname } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { CreateOrderDrawer } from "@/components/create-order-drawer"
 import { CreateTransactionDrawer } from "@/components/create-transaction-drawer"
+import { CreateProjectDrawer } from "@/components/create-project-drawer"
 
 const mainNavItems = [
   {
@@ -84,6 +86,11 @@ const mainNavItems = [
     icon: Handshake,
   },
   {
+    title: "Կոնտակտներ",
+    url: "/dashboard/contacts",
+    icon: Contact,
+  },
+  {
     title: "Փաստաթղթեր",
     url: "/dashboard/documents",
     icon: FolderOpen,
@@ -105,12 +112,12 @@ const mainNavItems = [
   },
 ]
 
-// Sample active projects - you can replace this with data from your database
-const activeProjects = [
-  { id: "1", name: "Նախագիծ 1", url: "/dashboard/projects/1" },
-  { id: "2", name: "Նախագիծ 2", url: "/dashboard/projects/2" },
-  { id: "3", name: "Նախագիծ 3", url: "/dashboard/projects/3" },
-]
+interface Project {
+  id: number
+  name: string
+  code: string
+  status: string
+}
 
 export function AppSidebar() {
   const router = useRouter()
@@ -118,6 +125,28 @@ export function AppSidebar() {
   const supabase = createClient()
   const [isOrderDrawerOpen, setIsOrderDrawerOpen] = React.useState(false)
   const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = React.useState(false)
+  const [isProjectDrawerOpen, setIsProjectDrawerOpen] = React.useState(false)
+  const [activeProjects, setActiveProjects] = React.useState<Project[]>([])
+
+  React.useEffect(() => {
+    fetchActiveProjects()
+  }, [])
+
+  const fetchActiveProjects = async () => {
+    const { data, error } = await supabase
+      .from("project")
+      .select("id, name, code, status")
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(10)
+
+    if (error) {
+      console.error("Error fetching active projects:", error)
+      return
+    }
+
+    setActiveProjects(data || [])
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -136,6 +165,11 @@ export function AppSidebar() {
       openDrawer: true
     }))
     router.push(`/dashboard/warehouse?id=${warehouseId}`)
+  }
+
+  const handleProjectCreated = () => {
+    // Refresh the active projects list after creating a new project
+    fetchActiveProjects()
   }
 
   return (
@@ -170,6 +204,9 @@ export function AppSidebar() {
                 <DropdownMenuItem onClick={() => setIsTransactionDrawerOpen(true)}>
                   Ստեղծել գործարք
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsProjectDrawerOpen(true)}>
+                  Ստեղծել նախագիծ
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
@@ -202,19 +239,25 @@ export function AppSidebar() {
           <SidebarGroupLabel>Ակտիվ նախագծեր</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {activeProjects.map((project) => (
-                <SidebarMenuItem key={project.id}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname === project.url}
-                  >
-                    <a href={project.url}>
-                      <Folder />
-                      <span>{project.name}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {activeProjects.length > 0 ? (
+                activeProjects.map((project) => (
+                  <SidebarMenuItem key={project.id}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === `/dashboard/projects/${project.id}`}
+                    >
+                      <a href={`/dashboard/projects/${project.id}`}>
+                        <Folder />
+                        <span>{project.name}</span>
+                      </a>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))
+              ) : (
+                <div className="px-3 py-2 text-sm text-muted-foreground">
+                  Ակտիվ նախագծեր չկան
+                </div>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -273,6 +316,13 @@ export function AppSidebar() {
       <CreateTransactionDrawer
         open={isTransactionDrawerOpen}
         onOpenChange={setIsTransactionDrawerOpen}
+      />
+
+      {/* Project Creation Drawer */}
+      <CreateProjectDrawer
+        open={isProjectDrawerOpen}
+        onOpenChange={setIsProjectDrawerOpen}
+        onSuccess={handleProjectCreated}
       />
     </Sidebar>
   )
