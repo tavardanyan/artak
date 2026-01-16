@@ -25,6 +25,7 @@ interface Person {
   address: string | null
   position: string | null
   account_id: number | null
+  partner_id: number | null
 }
 
 function StaffCard({ staff, onClick }: { staff: Person; onClick: () => void }) {
