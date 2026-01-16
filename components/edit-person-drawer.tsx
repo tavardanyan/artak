@@ -64,7 +64,7 @@ interface Contract {
   project: {
     name: string
     code: string
-  }
+  } | null
 }
 
 interface Transaction {
@@ -213,7 +213,8 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
       .order("created_at", { ascending: false })
 
     if (!contractsError && contractsData) {
-      setContracts(contractsData)
+      // Type assertion to handle Supabase's foreign key selection
+      setContracts(contractsData as unknown as Contract[])
     }
 
     // Fetch transactions if person has account
@@ -235,7 +236,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
         .limit(20)
 
       if (!transactionsError && transactionsData) {
-        setTransactions(transactionsData)
+        setTransactions(transactionsData as unknown as Transaction[])
       }
     }
 
@@ -466,7 +467,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
                         <TableRow key={contract.id}>
                           <TableCell>
                             <div>
-                              <p className="font-medium text-sm">{contract.project.name}</p>
+                              <p className="font-medium text-sm">{contract.project?.name || "-"}</p>
                               <p className="text-xs text-muted-foreground line-clamp-1">
                                 {contract.description}
                               </p>
