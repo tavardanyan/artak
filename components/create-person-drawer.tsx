@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,6 +23,12 @@ import {
 } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
 
+interface Partner {
+  id: number
+  name: string
+  type: string
+}
+
 interface CreatePersonDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -33,11 +39,14 @@ interface CreatePersonDrawerProps {
 export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: CreatePersonDrawerProps) {
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
+  const [nickname, setNickname] = useState("")
   const [bday, setBday] = useState("")
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
+  const [secondPhone, setSecondPhone] = useState("")
   const [address, setAddress] = useState("")
   const [position, setPosition] = useState("")
+  const [partnerId, setPartnerId] = useState("")
 
   // Account creation (only for staff)
   const [createAccount, setCreateAccount] = useState(false)
@@ -47,19 +56,43 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
   const [accountNumber, setAccountNumber] = useState("")
   const [accountCurrency, setAccountCurrency] = useState("amd")
 
+  const [partners, setPartners] = useState<Partner[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const supabase = createClient()
   const { toast } = useToast()
 
+  useEffect(() => {
+    if (open && type === "contact") {
+      fetchPartners()
+    }
+  }, [open, type])
+
+  const fetchPartners = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("partner")
+        .select("id, name, type")
+        .order("name")
+
+      if (error) throw error
+      setPartners(data || [])
+    } catch (error) {
+      console.error("Error fetching partners:", error)
+    }
+  }
+
   const resetForm = () => {
     setFirstName("")
     setLastName("")
+    setNickname("")
     setBday("")
     setEmail("")
     setPhone("")
+    setSecondPhone("")
     setAddress("")
     setPosition("")
+    setPartnerId("")
     setCreateAccount(false)
     setAccountName("")
     setAccountType("bank")
@@ -119,12 +152,15 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
           type: type,
           first_name: firstName,
           last_lame: lastName || null,
+          nickname: nickname || null,
           bday: bday ? new Date(bday).toISOString() : null,
           email: email || null,
           phone: phone || null,
+          second_phone: secondPhone || null,
           address: address || null,
           position: position || null,
           account_id: accountId,
+          partner_id: partnerId ? parseInt(partnerId) : null,
         }])
 
       if (personError) throw personError
@@ -196,6 +232,16 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="nickname">Մականուն</Label>
+              <Input
+                id="nickname"
+                placeholder="Մականունը"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="bday">Ծննդյան օր</Label>
               <Input
                 id="bday"
@@ -227,6 +273,16 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="second-phone">Երկրորդ հեռախոս</Label>
+              <Input
+                id="second-phone"
+                placeholder="+374 XX XXXXXX"
+                value={secondPhone}
+                onChange={(e) => setSecondPhone(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="address">Հասցե</Label>
               <Input
                 id="address"
@@ -238,13 +294,43 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
 
             <div className="space-y-2">
               <Label htmlFor="position">Պաշտոն</Label>
-              <Input
-                id="position"
-                placeholder="Պաշտոնը"
-                value={position}
-                onChange={(e) => setPosition(e.target.value)}
-              />
+              <Select value={position} onValueChange={setPosition}>
+                <SelectTrigger id="position">
+                  <SelectValue placeholder="Ընտրել պաշտոնը" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Տնօրինություն">Տնօրինություն</SelectItem>
+                  <SelectItem value="Վարորդ">Վարորդ</SelectItem>
+                  <SelectItem value="Արհեստավոր">Արհեստավոր</SelectItem>
+                  <SelectItem value="Հաշվապահ">Հաշվապահ</SelectItem>
+                  <SelectItem value="Ինժեներ">Ինժեներ</SelectItem>
+                  <SelectItem value="Հսկիչ">Հսկիչ</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
+            {/* Partner Selection - Only for contact */}
+            {type === "contact" && (
+              <div className="space-y-2">
+                <Label htmlFor="partner">Գործընկեր (ոչ պարտադիր)</Label>
+                <Select value={partnerId} onValueChange={setPartnerId}>
+                  <SelectTrigger id="partner">
+                    <SelectValue placeholder="Ընտրել գործընկերը" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {partners.length === 0 ? (
+                      <SelectItem value="empty" disabled>Գործընկերներ չկան</SelectItem>
+                    ) : (
+                      partners.map((partner) => (
+                        <SelectItem key={partner.id} value={partner.id.toString()}>
+                          {partner.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           {/* Create Account Section - Only for staff */}

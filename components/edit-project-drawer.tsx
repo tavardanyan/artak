@@ -22,35 +22,71 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
-import { useRouter } from "next/navigation"
 
 interface Partner {
   id: number
   name: string
 }
 
-interface CreateProjectDrawerProps {
+interface Project {
+  id: number
+  name: string
+  code: string
+  type: string
+  address: string | null
+  partner_id: number
+  start: string | null
+  end: string | null
+  agreement_date: string | null
+  budget: number | null
+  status: string
+}
+
+interface EditProjectDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  project: Project
   onSuccess?: () => void
 }
 
-export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreateProjectDrawerProps) {
+export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: EditProjectDrawerProps) {
   const [partners, setPartners] = useState<Partner[]>([])
-  const [name, setName] = useState("")
-  const [code, setCode] = useState("")
-  const [type, setType] = useState("construction")
-  const [address, setAddress] = useState("")
-  const [partnerId, setPartnerId] = useState("")
-  const [startDate, setStartDate] = useState("")
-  const [endDate, setEndDate] = useState("")
-  const [agreementDate, setAgreementDate] = useState("")
-  const [budget, setBudget] = useState("")
+  const [name, setName] = useState(project.name)
+  const [code, setCode] = useState(project.code)
+  const [type, setType] = useState(project.type)
+  const [address, setAddress] = useState(project.address || "")
+  const [partnerId, setPartnerId] = useState(project.partner_id.toString())
+  const [startDate, setStartDate] = useState(
+    project.start ? new Date(project.start).toISOString().split("T")[0] : ""
+  )
+  const [endDate, setEndDate] = useState(
+    project.end ? new Date(project.end).toISOString().split("T")[0] : ""
+  )
+  const [agreementDate, setAgreementDate] = useState(
+    project.agreement_date ? new Date(project.agreement_date).toISOString().split("T")[0] : ""
+  )
+  const [budget, setBudget] = useState(
+    project.budget ? handleNumberInput(project.budget.toString()) : ""
+  )
+  const [status, setStatus] = useState(project.status)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const supabase = createClient()
   const { toast } = useToast()
-  const router = useRouter()
+
+  // Update form when project changes
+  useEffect(() => {
+    setName(project.name)
+    setCode(project.code)
+    setType(project.type)
+    setAddress(project.address || "")
+    setPartnerId(project.partner_id.toString())
+    setStartDate(project.start ? new Date(project.start).toISOString().split("T")[0] : "")
+    setEndDate(project.end ? new Date(project.end).toISOString().split("T")[0] : "")
+    setAgreementDate(project.agreement_date ? new Date(project.agreement_date).toISOString().split("T")[0] : "")
+    setBudget(project.budget ? handleNumberInput(project.budget.toString()) : "")
+    setStatus(project.status)
+  }, [project])
 
   useEffect(() => {
     if (open) {
@@ -92,9 +128,9 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
     setIsSubmitting(true)
 
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("project")
-        .insert({
+        .update({
           name,
           code,
           type,
@@ -104,15 +140,15 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
           end: endDate ? new Date(endDate).toISOString() : null,
           agreement_date: agreementDate ? new Date(agreementDate).toISOString() : null,
           budget: budget ? parseFormattedNumber(budget) : null,
-          status: "active",
+          status,
         })
-        .select()
+        .eq("id", project.id)
 
       if (error) {
-        console.error("Error creating project:", error)
+        console.error("Error updating project:", error)
         toast({
           title: "Սխալ",
-          description: "Չհաջողվեց ստեղծել նախագիծը",
+          description: "Չհաջողվեց թարմացնել նախագիծը",
           variant: "destructive",
         })
         return
@@ -120,29 +156,13 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
 
       toast({
         title: "Հաջողություն",
-        description: "Նախագիծը հաջողությամբ ստեղծվեց",
+        description: "Նախագիծը հաջողությամբ թարմացվեց",
       })
-
-      // Reset form
-      setName("")
-      setCode("")
-      setType("construction")
-      setAddress("")
-      setPartnerId("")
-      setStartDate("")
-      setEndDate("")
-      setAgreementDate("")
-      setBudget("")
 
       onOpenChange(false)
 
       if (onSuccess) {
         onSuccess()
-      }
-
-      // Navigate to the project page if data is available
-      if (data && data[0]) {
-        router.push(`/dashboard/projects/${data[0].id}`)
       }
     } catch (error) {
       console.error("Error:", error)
@@ -160,9 +180,9 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>Ստեղծել նախագիծ</SheetTitle>
+          <SheetTitle>Խմբագրել նախագիծը</SheetTitle>
           <SheetDescription>
-            Լրացրեք նախագծի տվյալները
+            Թարմացրեք նախագծի տվյալները
           </SheetDescription>
         </SheetHeader>
 
@@ -203,6 +223,21 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
                 <SelectItem value="design">Դիզայն</SelectItem>
                 <SelectItem value="consulting">Խորհրդատվություն</SelectItem>
                 <SelectItem value="other">Այլ</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="status">Կարգավիճակ</Label>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger id="status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="planning">Պլանավորում</SelectItem>
+                <SelectItem value="active">Ակտիվ</SelectItem>
+                <SelectItem value="completed">Ավարտված</SelectItem>
+                <SelectItem value="cancelled">Չեղարկված</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -286,7 +321,7 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
             Չեղարկել
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? "Ստեղծում..." : "Ստեղծել"}
+            {isSubmitting ? "Պահպանում..." : "Պահպանել"}
           </Button>
         </SheetFooter>
       </SheetContent>

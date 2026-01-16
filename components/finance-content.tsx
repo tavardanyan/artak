@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-format"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -78,7 +79,7 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
   // Create transaction state
   const [transactionType, setTransactionType] = useState<"incoming" | "outgoing">("outgoing")
   const [otherAccount, setOtherAccount] = useState<number | null>(null)
-  const [amount, setAmount] = useState<number>(0)
+  const [amount, setAmount] = useState<string>("")
   const [note, setNote] = useState<string>("")
 
   const { toast } = useToast()
@@ -162,7 +163,8 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
       return
     }
 
-    if (amount <= 0) {
+    const amountNum = parseFormattedNumber(amount)
+    if (amountNum <= 0) {
       toast({
         title: "Սխալ",
         description: "Գումարը պետք է լինի 0-ից մեծ",
@@ -175,7 +177,7 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
       const transactionData = {
         from: transactionType === "outgoing" ? accountId : otherAccount,
         to: transactionType === "outgoing" ? otherAccount : accountId,
-        amount: amount,
+        amount: amountNum,
         note: note || null,
       }
 
@@ -193,7 +195,7 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
       // Reset form
       setTransactionType("outgoing")
       setOtherAccount(null)
-      setAmount(0)
+      setAmount("")
       setNote("")
       setIsCreateTransactionDrawerOpen(false)
 
@@ -490,12 +492,10 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
               <Label htmlFor="amount">Գումար ({getCurrencySymbol(accountCurrency)})</Label>
               <Input
                 id="amount"
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
                 placeholder="0.00"
-                value={amount || ""}
-                onChange={(e) => setAmount(Number(e.target.value))}
+                value={amount}
+                onChange={(e) => setAmount(handleNumberInput(e.target.value))}
               />
             </div>
 
@@ -512,7 +512,7 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
             </div>
 
             {/* Summary */}
-            {amount > 0 && otherAccount && (
+            {parseFormattedNumber(amount) > 0 && otherAccount && (
               <div className="p-4 bg-accent rounded-lg space-y-2">
                 <p className="text-sm text-muted-foreground">Ամփոփում</p>
                 <div className="flex items-center justify-between">
@@ -525,7 +525,7 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
                 </div>
                 <p className={`text-2xl font-bold ${transactionType === "outgoing" ? "text-red-600" : "text-green-600"}`}>
                   {transactionType === "outgoing" ? "-" : "+"}
-                  {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {getCurrencySymbol(accountCurrency)}
+                  {parseFormattedNumber(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {getCurrencySymbol(accountCurrency)}
                 </p>
               </div>
             )}

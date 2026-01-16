@@ -9,26 +9,30 @@ import { Button } from "@/components/ui/button"
 import { Phone, Mail, MapPin, Plus, Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { CreatePersonDrawer } from "@/components/create-person-drawer"
+import { EditPersonDrawer } from "@/components/edit-person-drawer"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface Person {
   id: number
   type: string
   first_name: string
   last_lame: string | null
+  nickname: string | null
   bday: string | null
   email: string | null
   phone: string | null
+  second_phone: string | null
   address: string | null
   position: string | null
   account_id: number | null
 }
 
-function StaffCard({ staff }: { staff: Person }) {
+function StaffCard({ staff, onClick }: { staff: Person; onClick: () => void }) {
   const fullName = `${staff.first_name} ${staff.last_lame || ""}`.trim()
   const initials = `${staff.first_name[0]}${staff.last_lame?.[0] || ""}`.toUpperCase()
 
   return (
-    <Card className="w-full hover:bg-accent/50 transition-colors">
+    <Card className="w-full hover:bg-accent/50 transition-colors cursor-pointer" onClick={onClick}>
       <CardContent className="flex items-center gap-6 p-6">
         <Avatar className="h-16 w-16">
           <AvatarFallback className="text-lg bg-primary/10">
@@ -54,6 +58,12 @@ function StaffCard({ staff }: { staff: Person }) {
                 <span>{staff.phone}</span>
               </div>
             )}
+            {staff.second_phone && (
+              <div className="flex items-center gap-2 text-sm">
+                <Phone className="h-4 w-4 text-muted-foreground" />
+                <span>{staff.second_phone}</span>
+              </div>
+            )}
             {staff.email && (
               <div className="flex items-center gap-2 text-sm">
                 <Mail className="h-4 w-4 text-muted-foreground" />
@@ -77,6 +87,9 @@ export default function StaffPage() {
   const [staff, setStaff] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
+  const [selectedPerson, setSelectedPerson] = useState<Person | null>(null)
+  const [positionFilter, setPositionFilter] = useState<string>("all")
   const { toast } = useToast()
   const supabase = createClient()
 
@@ -107,6 +120,11 @@ export default function StaffPage() {
     }
   }
 
+  const filteredStaff = staff.filter((person) => {
+    if (positionFilter === "all") return true
+    return person.position === positionFilter
+  })
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -122,13 +140,28 @@ export default function StaffPage() {
         </Button>
       </div>
 
+      {/* Position Filter Tabs */}
+      <Tabs value={positionFilter} onValueChange={setPositionFilter}>
+        <TabsList>
+          <TabsTrigger value="all">Բոլորը</TabsTrigger>
+          <TabsTrigger value="Տնօրինություն">Տնօրինություն</TabsTrigger>
+          <TabsTrigger value="Վարորդ">Վարորդ</TabsTrigger>
+          <TabsTrigger value="Արհեստավոր">Արհեստավոր</TabsTrigger>
+          <TabsTrigger value="Հաշվապահ">Հաշվապահ</TabsTrigger>
+          <TabsTrigger value="Ինժեներ">Ինժեներ</TabsTrigger>
+          <TabsTrigger value="Հսկիչ">Հսկիչ</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       {loading ? (
         <div className="flex items-center justify-center h-96">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : staff.length === 0 ? (
+      ) : filteredStaff.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-96 text-center">
-          <p className="text-muted-foreground mb-4">Աշխատակիցներ չկան</p>
+          <p className="text-muted-foreground mb-4">
+            {staff.length === 0 ? "Աշխատակիցներ չկան" : "Այս պաշտոնով աշխատակիցներ չկան"}
+          </p>
           <Button onClick={() => setIsDrawerOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Ավելացնել առաջին աշխատակիցը
@@ -136,8 +169,15 @@ export default function StaffPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {staff.map((person) => (
-            <StaffCard key={person.id} staff={person} />
+          {filteredStaff.map((person) => (
+            <StaffCard
+              key={person.id}
+              staff={person}
+              onClick={() => {
+                setSelectedPerson(person)
+                setIsEditDrawerOpen(true)
+              }}
+            />
           ))}
         </div>
       )}
@@ -148,6 +188,15 @@ export default function StaffPage() {
         type="staff"
         onSuccess={fetchStaff}
       />
+
+      {selectedPerson && (
+        <EditPersonDrawer
+          open={isEditDrawerOpen}
+          onOpenChange={setIsEditDrawerOpen}
+          person={selectedPerson}
+          onSuccess={fetchStaff}
+        />
+      )}
     </div>
   )
 }

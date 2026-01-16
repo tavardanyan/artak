@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-format"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -849,7 +850,6 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Կոդ</TableHead>
                       <TableHead>Անվանում</TableHead>
                       <TableHead>Միավոր</TableHead>
                       <TableHead className="text-right">Քանակ</TableHead>
@@ -867,10 +867,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                           className="cursor-pointer hover:bg-accent"
                           onClick={() => handleItemClick(item)}
                         >
-                          <TableCell className="font-medium">
-                            {item.item?.code || `#${item.item_id}`}
-                          </TableCell>
-                          <TableCell>{item.item?.name || "Անհայտ"}</TableCell>
+                          <TableCell className="font-medium">{item.item?.name || "Անհայտ"}</TableCell>
                           <TableCell className="text-muted-foreground">
                             {item.item?.unit || "-"}
                           </TableCell>
@@ -1245,31 +1242,25 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                         </TableCell>
                         <TableCell>
                           <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
+                            type="text"
                             value={item.qty}
-                            onChange={(e) => updateItemRow(index, "qty", Number(e.target.value))}
+                            onChange={(e) => updateItemRow(index, "qty", parseFormattedNumber(handleNumberInput(e.target.value)))}
                           />
                         </TableCell>
                         <TableCell>
                           <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
+                            type="text"
                             placeholder="0.00"
-                            value={item.unitPrice || ""}
-                            onChange={(e) => updateItemRow(index, "unitPrice", Number(e.target.value))}
+                            value={item.unitPrice ? handleNumberInput(item.unitPrice.toString()) : ""}
+                            onChange={(e) => updateItemRow(index, "unitPrice", parseFormattedNumber(handleNumberInput(e.target.value)))}
                           />
                         </TableCell>
                         <TableCell>
                           <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
+                            type="text"
                             placeholder="0.00"
-                            value={item.unitVat || ""}
-                            onChange={(e) => updateItemRow(index, "unitVat", Number(e.target.value))}
+                            value={item.unitVat ? handleNumberInput(item.unitVat.toString()) : ""}
+                            onChange={(e) => updateItemRow(index, "unitVat", parseFormattedNumber(handleNumberInput(e.target.value)))}
                           />
                         </TableCell>
                         <TableCell>

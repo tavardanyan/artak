@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-format"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,6 +26,7 @@ import {
   FileText,
   Briefcase,
   Plus,
+  ArrowUpRight,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -46,6 +48,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
+import { WarehouseContent } from "@/components/warehouse-content"
+import { EditProjectDrawer } from "@/components/edit-project-drawer"
 
 interface Project {
   id: number
@@ -57,6 +61,7 @@ interface Project {
   start: string | null
   end: string | null
   agreement_date: string | null
+  budget: number | null
   status: string
   created_at: string
   partner?: {
@@ -75,19 +80,6 @@ interface Project {
       name: string
       currency: string
     }
-  }
-}
-
-interface WarehouseItem {
-  id: number
-  name: string
-  unit: string
-  quantity: number
-  price: number
-  product_id: number | null
-  product?: {
-    name: string
-    code: string
   }
 }
 
@@ -153,6 +145,16 @@ interface Person {
   first_name: string
   last_lame: string | null
   position: string | null
+}
+
+interface Contact {
+  id: number
+  first_name: string
+  last_lame: string | null
+  phone: string | null
+  email: string | null
+  position: string | null
+  partner_id: number | null
 }
 
 const getStatusBadge = (status: string) => {
@@ -233,14 +235,15 @@ export default function ProjectPage() {
   const { toast } = useToast()
 
   const [project, setProject] = useState<Project | null>(null)
-  const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [contracts, setContracts] = useState<Contract[]>([])
+  const [contacts, setContacts] = useState<Contact[]>([])
   const [staff, setStaff] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
   const [isContractDrawerOpen, setIsContractDrawerOpen] = useState(false)
   const [isEditContractDrawerOpen, setIsEditContractDrawerOpen] = useState(false)
+  const [isEditProjectDrawerOpen, setIsEditProjectDrawerOpen] = useState(false)
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null)
 
   useEffect(() => {
@@ -248,15 +251,11 @@ export default function ProjectPage() {
   }, [projectId])
 
   useEffect(() => {
-    if (project?.partner?.warehouse_id) {
-      fetchWarehouseItems()
-    }
-    if (project?.partner?.account_id) {
-      fetchTransactions()
-    }
     if (project?.id) {
+      fetchTransactions()
       fetchContracts()
       fetchStaff()
+      fetchContacts()
     }
   }, [project])
 
@@ -290,28 +289,9 @@ export default function ProjectPage() {
     }
   }
 
-  const fetchWarehouseItems = async () => {
-    if (!project?.partner?.warehouse_id) return
-
-    try {
-      const { data, error } = await supabase
-        .from("item")
-        .select(`
-          *,
-          product:product_id(name, code)
-        `)
-        .eq("warehouse_id", project.partner.warehouse_id)
-        .order("created_at", { ascending: false })
-
-      if (error) throw error
-      setWarehouseItems(data || [])
-    } catch (error) {
-      console.error("Error fetching warehouse items:", error)
-    }
-  }
 
   const fetchTransactions = async () => {
-    if (!project?.partner?.account_id) return
+    if (!project?.id) return
 
     try {
       const { data, error } = await supabase
@@ -321,9 +301,8 @@ export default function ProjectPage() {
           from_account:from(name, currency),
           to_account:to(name, currency)
         `)
-        .or(`from.eq.${project.partner.account_id},to.eq.${project.partner.account_id}`)
+        .eq("project_id", project.id)
         .order("created_at", { ascending: false })
-        .limit(50)
 
       if (error) throw error
       setTransactions(data || [])
@@ -405,9 +384,24 @@ export default function ProjectPage() {
     }
   }
 
-  const calculateTotalValue = () => {
-    return warehouseItems.reduce((sum, item) => sum + (item.quantity * item.price), 0)
+  const fetchContacts = async () => {
+    if (!project?.partner_id) return
+
+    try {
+      const { data, error} = await supabase
+        .from("person")
+        .select("id, first_name, last_lame, phone, email, position, partner_id")
+        .eq("type", "contact")
+        .eq("partner_id", project.partner_id)
+        .order("first_name")
+
+      if (error) throw error
+      setContacts(data || [])
+    } catch (error) {
+      console.error("Error fetching contacts:", error)
+    }
   }
+
 
   if (loading) {
     return (
@@ -428,24 +422,29 @@ export default function ProjectPage() {
   return (
     <div className="space-y-6">
       {/* Project Header */}
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <h2 className="text-3xl font-bold tracking-tight">{project.name}</h2>
-          {getStatusBadge(project.status)}
-          <Badge variant="outline">{getTypeLabel(project.type)}</Badge>
-        </div>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <FileText className="h-4 w-4" />
-            Կոդ: {project.code}
-          </span>
-          {project.address && (
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <h2 className="text-3xl font-bold tracking-tight">{project.name}</h2>
+            {getStatusBadge(project.status)}
+            <Badge variant="outline">{getTypeLabel(project.type)}</Badge>
+          </div>
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
-              <MapPin className="h-4 w-4" />
-              {project.address}
+              <FileText className="h-4 w-4" />
+              Կոդ: {project.code}
             </span>
-          )}
+            {project.address && (
+              <span className="flex items-center gap-1">
+                <MapPin className="h-4 w-4" />
+                {project.address}
+              </span>
+            )}
+          </div>
         </div>
+        <Button onClick={() => setIsEditProjectDrawerOpen(true)}>
+          Խմբագրել նախագիծը
+        </Button>
       </div>
 
       {/* Tabs */}
@@ -460,13 +459,16 @@ export default function ProjectPage() {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="warehouse">
-            Պահեստ
-            {warehouseItems.length > 0 && (
+          <TabsTrigger value="contacts">
+            Կոնտակտներ
+            {contacts.length > 0 && (
               <Badge variant="secondary" className="ml-2">
-                {warehouseItems.length}
+                {contacts.length}
               </Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="warehouse">
+            Պահեստ
           </TabsTrigger>
           <TabsTrigger value="transactions">
             Գործարքներ
@@ -480,6 +482,97 @@ export default function ProjectPage() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
+          {/* Financial Overview */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {/* Budget Card */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Բյուջե</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {project.budget ? project.budget.toLocaleString() + " ֏" : "-"}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Նախատեսված ընդհանուր բյուջե
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Total Contracts Card */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Պայմանագրեր</CardTitle>
+                <Receipt className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {contracts.reduce((sum, c) => sum + c.total, 0).toLocaleString()} ֏
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {contracts.length} պայմանագիր
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Paid Amount Card */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Վճարված</CardTitle>
+                <DollarSign className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">
+                  {contracts
+                    .reduce((sum, c) => {
+                      const contractPaid = (c.contract_transaction || []).reduce(
+                        (total, ct) => total + (ct.transaction?.amount || 0),
+                        0
+                      )
+                      return sum + contractPaid
+                    }, 0)
+                    .toLocaleString()} ֏
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Ընդունված վճարումներ
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Budget Difference Card */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Մնացորդ</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                {project.budget ? (
+                  <>
+                    <div className={`text-2xl font-bold ${
+                      project.budget - contracts.reduce((sum, c) => sum + c.total, 0) >= 0
+                        ? 'text-green-600'
+                        : 'text-red-600'
+                    }`}>
+                      {(project.budget - contracts.reduce((sum, c) => sum + c.total, 0)).toLocaleString()} ֏
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Բյուջե - Պայմանագրեր
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-2xl font-bold">-</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Բյուջե սահմանված չէ
+                    </p>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Date Overview */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -604,6 +697,73 @@ export default function ProjectPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Outgoing Transactions */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Ելքային գործարքներ</CardTitle>
+              <CardDescription>Վերջին ելքային գործարքների ցանկ</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {transactions.filter(t => t.from === project.partner?.account_id).length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <ArrowUpRight className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
+                  <p className="text-muted-foreground">Ելքային գործարքներ չկան</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {transactions
+                    .filter(t => t.from === project.partner?.account_id)
+                    .slice(0, 6)
+                    .map((transaction) => (
+                      <Card key={transaction.id} className="hover:bg-accent/50 transition-colors">
+                        <CardContent className="pt-6">
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <ArrowUpRight className="h-4 w-4 text-red-500" />
+                                <span className="text-sm font-medium text-muted-foreground">Ելք</span>
+                              </div>
+                              <Badge variant="outline">
+                                {new Date(transaction.created_at).toLocaleDateString('hy-AM')}
+                              </Badge>
+                            </div>
+
+                            <div className="flex items-baseline justify-between">
+                              <span className="text-2xl font-bold">
+                                {transaction.amount.toLocaleString('hy-AM')}
+                              </span>
+                              <span className="text-sm font-medium text-muted-foreground">
+                                {transaction.to_account?.currency.toUpperCase()}
+                              </span>
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">Ից:</span>
+                                <span className="font-medium">{transaction.from_account?.name}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">Դեպի:</span>
+                                <span className="font-medium">{transaction.to_account?.name}</span>
+                              </div>
+                            </div>
+
+                            {transaction.note && (
+                              <div className="pt-2 border-t">
+                                <p className="text-sm text-muted-foreground line-clamp-2">
+                                  {transaction.note}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Contracts Tab */}
@@ -717,72 +877,41 @@ export default function ProjectPage() {
           </Card>
         </TabsContent>
 
-        {/* Warehouse Tab */}
-        <TabsContent value="warehouse" className="space-y-4">
+        {/* Contacts Tab */}
+        <TabsContent value="contacts" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Պահեստի նյութեր</CardTitle>
-                  <CardDescription>
-                    {project.partner?.warehouse?.name || "Պահեստ"} - Նյութերի ցանկ
-                  </CardDescription>
-                </div>
-                {warehouseItems.length > 0 && (
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-muted-foreground">Ընդհանուր արժեք</p>
-                    <p className="text-2xl font-bold">
-                      {formatCurrency(calculateTotalValue())}
-                    </p>
-                  </div>
-                )}
-              </div>
+              <CardTitle>Կոնտակտներ</CardTitle>
+              <CardDescription>
+                Գործընկեր {project.partner?.name}-ի հետ կապված կոնտակտներ
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              {!project.partner?.warehouse_id ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <Package className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
-                  <p className="text-muted-foreground">Գործընկերն իր պահեստ չունի</p>
-                </div>
-              ) : warehouseItems.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <Package className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
-                  <p className="text-muted-foreground">Պահեստում նյութեր չկան</p>
-                </div>
+              {contacts.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">
+                  Կոնտակտներ չկան
+                </p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Անվանում</TableHead>
-                      <TableHead>Ապրանք</TableHead>
-                      <TableHead>Միավոր</TableHead>
-                      <TableHead className="text-right">Քանակ</TableHead>
-                      <TableHead className="text-right">Գին</TableHead>
-                      <TableHead className="text-right">Ընդամենը</TableHead>
+                      <TableHead>Անուն</TableHead>
+                      <TableHead>Պաշտոն</TableHead>
+                      <TableHead>Հեռախոս</TableHead>
+                      <TableHead>Էլ. փոստ</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {warehouseItems.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium">{item.name}</TableCell>
+                    {contacts.map((contact) => (
+                      <TableRow key={contact.id}>
+                        <TableCell className="font-medium">
+                          {contact.first_name} {contact.last_lame || ""}
+                        </TableCell>
                         <TableCell>
-                          {item.product ? (
-                            <div>
-                              <p>{item.product.name}</p>
-                              <p className="text-xs text-muted-foreground">{item.product.code}</p>
-                            </div>
-                          ) : (
-                            "-"
-                          )}
+                          {contact.position || "-"}
                         </TableCell>
-                        <TableCell>{item.unit}</TableCell>
-                        <TableCell className="text-right">{item.quantity}</TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(item.price)}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {formatCurrency(item.quantity * item.price)}
-                        </TableCell>
+                        <TableCell>{contact.phone || "-"}</TableCell>
+                        <TableCell>{contact.email || "-"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -790,6 +919,23 @@ export default function ProjectPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Warehouse Tab */}
+        <TabsContent value="warehouse" className="space-y-4">
+          {!project.partner?.warehouse_id ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <Package className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
+                <p className="text-muted-foreground">Գործընկերն իր պահեստ չունի</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <WarehouseContent
+              warehouseId={project.partner.warehouse_id}
+              warehouseName={project.partner.warehouse?.name || "Պահեստ"}
+            />
+          )}
         </TabsContent>
 
         {/* Transactions Tab */}
@@ -883,6 +1029,16 @@ export default function ProjectPage() {
           onSuccess={fetchContracts}
         />
       )}
+
+      {/* Edit Project Drawer */}
+      {project && (
+        <EditProjectDrawer
+          open={isEditProjectDrawerOpen}
+          onOpenChange={setIsEditProjectDrawerOpen}
+          project={project}
+          onSuccess={fetchProject}
+        />
+      )}
     </div>
   )
 }
@@ -916,10 +1072,10 @@ function CreateContractDrawer({
 
   // Auto-calculate total when price or qty changes
   useEffect(() => {
-    const priceNum = parseFloat(price) || 0
-    const qtyNum = parseFloat(qty) || 0
+    const priceNum = parseFormattedNumber(price)
+    const qtyNum = parseFormattedNumber(qty)
     const calculatedTotal = priceNum * qtyNum
-    setTotal(calculatedTotal > 0 ? calculatedTotal.toString() : "")
+    setTotal(calculatedTotal > 0 ? handleNumberInput(calculatedTotal.toString()) : "")
   }, [price, qty])
 
   const resetForm = () => {
@@ -954,10 +1110,10 @@ function CreateContractDrawer({
           project_id: parseInt(projectId),
           person_id: parseInt(personId),
           description,
-          price: price ? parseFloat(price) : null,
+          price: price ? parseFormattedNumber(price) : null,
           unit: unit || null,
-          qty: qty ? parseFloat(qty) : null,
-          total: parseFloat(total),
+          qty: qty ? parseFormattedNumber(qty) : null,
+          total: parseFormattedNumber(total),
           status,
           start: startDate ? new Date(startDate).toISOString() : null,
           end: endDate ? new Date(endDate).toISOString() : null,
@@ -1037,11 +1193,10 @@ function CreateContractDrawer({
               <Label htmlFor="qty">Քանակ</Label>
               <Input
                 id="qty"
-                type="number"
-                step="0.01"
+                type="text"
                 placeholder="0"
                 value={qty}
-                onChange={(e) => setQty(e.target.value)}
+                onChange={(e) => setQty(handleNumberInput(e.target.value))}
               />
             </div>
 
@@ -1060,11 +1215,10 @@ function CreateContractDrawer({
             <Label htmlFor="price">Գին</Label>
             <Input
               id="price"
-              type="number"
-              step="0.01"
+              type="text"
               placeholder="0"
               value={price}
-              onChange={(e) => setPrice(e.target.value)}
+              onChange={(e) => setPrice(handleNumberInput(e.target.value))}
             />
           </div>
 
@@ -1074,11 +1228,10 @@ function CreateContractDrawer({
             </Label>
             <Input
               id="total"
-              type="number"
-              step="0.01"
+              type="text"
               placeholder="0"
               value={total}
-              onChange={(e) => setTotal(e.target.value)}
+              onChange={(e) => setTotal(handleNumberInput(e.target.value))}
             />
             {price && qty && (
               <p className="text-xs text-muted-foreground">
@@ -1176,20 +1329,20 @@ function EditContractDrawer({
 
   // Auto-calculate total when price or qty changes
   useEffect(() => {
-    const priceNum = parseFloat(price) || 0
-    const qtyNum = parseFloat(qty) || 0
+    const priceNum = parseFormattedNumber(price)
+    const qtyNum = parseFormattedNumber(qty)
     const calculatedTotal = priceNum * qtyNum
-    setTotal(calculatedTotal > 0 ? calculatedTotal.toString() : "")
+    setTotal(calculatedTotal > 0 ? handleNumberInput(calculatedTotal.toString()) : "")
   }, [price, qty])
 
   // Update form when contract changes
   useEffect(() => {
     setPersonId(contract.person_id.toString())
     setDescription(contract.description)
-    setPrice(contract.price?.toString() || "")
+    setPrice(contract.price ? handleNumberInput(contract.price.toString()) : "")
     setUnit(contract.unit || "")
-    setQty(contract.qty?.toString() || "")
-    setTotal(contract.total.toString())
+    setQty(contract.qty ? handleNumberInput(contract.qty.toString()) : "")
+    setTotal(handleNumberInput(contract.total.toString()))
     setStatus(contract.status)
     setStartDate(
       contract.start ? new Date(contract.start).toISOString().split("T")[0] : ""
@@ -1218,10 +1371,10 @@ function EditContractDrawer({
         .update({
           person_id: parseInt(personId),
           description,
-          price: price ? parseFloat(price) : null,
+          price: price ? parseFormattedNumber(price) : null,
           unit: unit || null,
-          qty: qty ? parseFloat(qty) : null,
-          total: parseFloat(total),
+          qty: qty ? parseFormattedNumber(qty) : null,
+          total: parseFormattedNumber(total),
           status,
           start: startDate ? new Date(startDate).toISOString() : null,
           end: endDate ? new Date(endDate).toISOString() : null,
@@ -1301,11 +1454,10 @@ function EditContractDrawer({
               <Label htmlFor="qty">Քանակ</Label>
               <Input
                 id="qty"
-                type="number"
-                step="0.01"
+                type="text"
                 placeholder="0"
                 value={qty}
-                onChange={(e) => setQty(e.target.value)}
+                onChange={(e) => setQty(handleNumberInput(e.target.value))}
               />
             </div>
 
@@ -1324,11 +1476,10 @@ function EditContractDrawer({
             <Label htmlFor="price">Գին</Label>
             <Input
               id="price"
-              type="number"
-              step="0.01"
+              type="text"
               placeholder="0"
               value={price}
-              onChange={(e) => setPrice(e.target.value)}
+              onChange={(e) => setPrice(handleNumberInput(e.target.value))}
             />
           </div>
 
@@ -1338,11 +1489,10 @@ function EditContractDrawer({
             </Label>
             <Input
               id="total"
-              type="number"
-              step="0.01"
+              type="text"
               placeholder="0"
               value={total}
-              onChange={(e) => setTotal(e.target.value)}
+              onChange={(e) => setTotal(handleNumberInput(e.target.value))}
             />
             {price && qty && (
               <p className="text-xs text-muted-foreground">
