@@ -97,7 +97,7 @@ const mainNavItems = [
   },
   {
     title: "Հարկային ծառայություն",
-    url: "/dashboard/tax-service",
+    url: "/dashboard/taxservice",
     icon: Receipt,
   },
   {
@@ -107,7 +107,7 @@ const mainNavItems = [
   },
   {
     title: "Կարգավորումներ",
-    url: "/dashboard/settings",
+    url: "/dashboard/configs",
     icon: Settings,
   },
 ]

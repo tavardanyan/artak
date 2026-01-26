@@ -1,3 +1,5 @@
+"use client"
+
 import { AppSidebar } from "@/components/app-sidebar"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
@@ -10,14 +12,20 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Bell } from "lucide-react"
+import { Bell, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { useTaxSync } from "@/hooks/use-tax-sync"
+import { useRouter } from "next/navigation"
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const router = useRouter()
+  const { unseenCount, timeAgo, syncSettings } = useTaxSync()
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -35,6 +43,23 @@ export default function DashboardLayout({
             </BreadcrumbList>
           </Breadcrumb>
           <div className="ml-auto flex items-center gap-2">
+            {/* Tax Sync Status */}
+            {syncSettings?.lastSyncDate && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="relative gap-2"
+                onClick={() => router.push("/dashboard/taxservice")}
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span className="text-xs text-muted-foreground">{timeAgo}</span>
+                {unseenCount > 0 && (
+                  <Badge variant="destructive" className="h-5 px-1.5 text-xs">
+                    {unseenCount}
+                  </Badge>
+                )}
+              </Button>
+            )}
             <ThemeToggle />
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="h-5 w-5" />
