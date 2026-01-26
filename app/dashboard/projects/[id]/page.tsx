@@ -11,6 +11,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -50,6 +51,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { WarehouseContent } from "@/components/warehouse-content"
 import { EditProjectDrawer } from "@/components/edit-project-drawer"
+import { PartnerEditDrawer } from "@/components/partner-edit-drawer"
 
 interface Project {
   id: number
@@ -157,6 +159,28 @@ interface Contact {
   partner_id: number | null
 }
 
+interface SupplierStats {
+  total_transfers: number
+  total_transfers_sum: number
+  approved_transfers: number
+  approved_transfers_sum: number
+  pending_transfers: number
+  pending_transfers_sum: number
+  total_transactions: number
+}
+
+interface Supplier {
+  id: number
+  name: string
+  tin: string | null
+  type: string
+  warehouse_id: number | null
+  account_id: number | null
+  account?: { name: string; currency: string }
+  warehouse?: { name: string }
+  stats?: SupplierStats
+}
+
 const getStatusBadge = (status: string) => {
   const statusMap: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
     active: { label: "Ակտիվ", variant: "default" },
@@ -239,12 +263,15 @@ export default function ProjectPage() {
   const [contracts, setContracts] = useState<Contract[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [staff, setStaff] = useState<Person[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
   const [isContractDrawerOpen, setIsContractDrawerOpen] = useState(false)
   const [isEditContractDrawerOpen, setIsEditContractDrawerOpen] = useState(false)
   const [isEditProjectDrawerOpen, setIsEditProjectDrawerOpen] = useState(false)
+  const [isPartnerDrawerOpen, setIsPartnerDrawerOpen] = useState(false)
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null)
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchProject()
@@ -256,6 +283,7 @@ export default function ProjectPage() {
       fetchContracts()
       fetchStaff()
       fetchContacts()
+      fetchSuppliers()
     }
   }, [project])
 
@@ -402,6 +430,108 @@ export default function ProjectPage() {
     }
   }
 
+  const fetchSuppliers = async () => {
+    if (!project?.id || !project?.partner?.warehouse_id) return
+
+    try {
+      // Get all suppliers (partners of type supplier)
+      const { data: partnersData, error: partnersError } = await supabase
+        .from("partner")
+        .select(`
+          id,
+          name,
+          tin,
+          type,
+          warehouse_id,
+          account_id,
+          warehouse:warehouse_id(name),
+          account:account_id(name, currency)
+        `)
+        .eq("type", "supplier")
+
+      if (partnersError) throw partnersError
+
+      // For each supplier, calculate stats based on transfers TO the project's warehouse
+      const suppliersWithStats = await Promise.all(
+        (partnersData || []).map(async (supplier) => {
+          const stats: SupplierStats = {
+            total_transfers: 0,
+            total_transfers_sum: 0,
+            approved_transfers: 0,
+            approved_transfers_sum: 0,
+            pending_transfers: 0,
+            pending_transfers_sum: 0,
+            total_transactions: 0,
+          }
+
+          // Get transfers FROM supplier's warehouse TO project's warehouse
+          if (supplier.warehouse_id && project.partner?.warehouse_id) {
+            const { data: transfers } = await supabase
+              .from("transfer")
+              .select(`
+                id,
+                acepted_at,
+                rejected_at,
+                transfer_item(qty, unit_price, unit_vat)
+              `)
+              .eq("from", supplier.warehouse_id)
+              .eq("to", project.partner.warehouse_id)
+
+            if (transfers) {
+              stats.total_transfers = transfers.length
+
+              transfers.forEach((transfer: any) => {
+                const transferTotal = (transfer.transfer_item || []).reduce((sum: number, item: any) => {
+                  return sum + (item.qty * item.unit_price) + (item.qty * item.unit_vat)
+                }, 0)
+
+                stats.total_transfers_sum += transferTotal
+
+                if (transfer.acepted_at && !transfer.rejected_at) {
+                  stats.approved_transfers++
+                  stats.approved_transfers_sum += transferTotal
+                } else if (!transfer.acepted_at && !transfer.rejected_at) {
+                  stats.pending_transfers++
+                  stats.pending_transfers_sum += transferTotal
+                }
+              })
+            }
+          }
+
+          // Get transactions FROM project's account TO supplier's account with project_id
+          if (supplier.account_id && project.partner?.account_id) {
+            const { data: transactions } = await supabase
+              .from("transaction")
+              .select("amount")
+              .eq("from", project.partner.account_id)
+              .eq("to", supplier.account_id)
+              .eq("project_id", project.id)
+              .not("accepted_at", "is", null)
+              .is("rejected_at", null)
+
+            if (transactions) {
+              stats.total_transactions = transactions.reduce((sum, t) => sum + t.amount, 0)
+            }
+          }
+
+          return {
+            ...supplier,
+            stats
+          }
+        })
+      )
+
+      // Only show suppliers that have activity
+      const activeSuppliers = suppliersWithStats.filter(
+        s => (s.stats?.total_transfers || 0) > 0 || (s.stats?.total_transactions || 0) > 0
+      )
+
+      setSuppliers(activeSuppliers as unknown as Supplier[])
+    } catch (error) {
+      console.error("Error fetching suppliers:", error)
+    }
+  }
+
 
   if (loading) {
     return (
@@ -469,6 +599,9 @@ export default function ProjectPage() {
           </TabsTrigger>
           <TabsTrigger value="warehouse">
             Պահեստ
+          </TabsTrigger>
+          <TabsTrigger value="suppliers">
+            Մատակարարներ
           </TabsTrigger>
           <TabsTrigger value="transactions">
             Գործարքներ
@@ -938,6 +1071,109 @@ export default function ProjectPage() {
           )}
         </TabsContent>
 
+        {/* Suppliers Tab */}
+        <TabsContent value="suppliers" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Handshake className="h-5 w-5" />
+                Մատակարարներ
+              </CardTitle>
+              <CardDescription>
+                Նախագծի մատակարարների ցանկ և վիճակագրություն
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {suppliers.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Handshake className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
+                  <p className="text-muted-foreground">Ակտիվ մատակարարներ չկան</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Անվանում</TableHead>
+                      <TableHead>ՀՎՀՀ</TableHead>
+                      <TableHead className="text-right">Տեղափոխություն (ընդամենը)</TableHead>
+                      <TableHead className="text-right">Վճարումներ</TableHead>
+                      <TableHead className="text-right">Մնացորդ</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {suppliers.map((supplier) => {
+                      const currency = supplier.account?.currency || "amd"
+                      const balance = (supplier.stats?.total_transfers_sum || 0) - (supplier.stats?.total_transactions || 0)
+
+                      return (
+                        <TableRow
+                          key={supplier.id}
+                          className="cursor-pointer hover:bg-accent/50"
+                          onClick={() => {
+                            setSelectedPartnerId(supplier.id)
+                            setIsPartnerDrawerOpen(true)
+                          }}
+                        >
+                          <TableCell className="font-medium">{supplier.name}</TableCell>
+                          <TableCell>{supplier.tin || "-"}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex flex-col items-end">
+                              <span className="font-medium">
+                                {formatCurrency(supplier.stats?.total_transfers_sum || 0, currency)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                ({supplier.stats?.total_transfers || 0})
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right font-medium text-blue-600">
+                            {formatCurrency(supplier.stats?.total_transactions || 0, currency)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span className={`font-bold ${balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                              {formatCurrency(balance, currency)}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                  <TableFooter>
+                    <TableRow>
+                      <TableCell colSpan={2} className="font-bold">Ընդամենը</TableCell>
+                      <TableCell className="text-right font-bold">
+                        {formatCurrency(
+                          suppliers.reduce((sum, s) => sum + (s.stats?.total_transfers_sum || 0), 0),
+                          "amd"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-blue-600">
+                        {formatCurrency(
+                          suppliers.reduce((sum, s) => sum + (s.stats?.total_transactions || 0), 0),
+                          "amd"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-bold">
+                        {(() => {
+                          const totalBalance = suppliers.reduce((sum, s) => {
+                            const balance = (s.stats?.total_transfers_sum || 0) - (s.stats?.total_transactions || 0)
+                            return sum + balance
+                          }, 0)
+                          return (
+                            <span className={totalBalance >= 0 ? 'text-red-600' : 'text-green-600'}>
+                              {formatCurrency(totalBalance, "amd")}
+                            </span>
+                          )
+                        })()}
+                      </TableCell>
+                    </TableRow>
+                  </TableFooter>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Transactions Tab */}
         <TabsContent value="transactions" className="space-y-4">
           <Card>
@@ -1037,6 +1273,19 @@ export default function ProjectPage() {
           onOpenChange={setIsEditProjectDrawerOpen}
           project={project}
           onSuccess={fetchProject}
+        />
+      )}
+
+      {/* Partner Detail Drawer - filtered by project */}
+      {project && (
+        <PartnerEditDrawer
+          open={isPartnerDrawerOpen}
+          onOpenChange={setIsPartnerDrawerOpen}
+          partnerId={selectedPartnerId}
+          onSuccess={fetchSuppliers}
+          projectId={project.id}
+          projectWarehouseId={project.partner?.warehouse_id}
+          projectAccountId={project.partner?.account_id}
         />
       )}
     </div>

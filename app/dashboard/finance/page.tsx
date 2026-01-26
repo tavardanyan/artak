@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -38,7 +39,8 @@ interface Account {
   internal: boolean
 }
 
-export default function FinancePage() {
+function FinancePageContent() {
+  const searchParams = useSearchParams()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
@@ -214,6 +216,20 @@ export default function FinancePage() {
   useEffect(() => {
     fetchAccounts()
   }, [])
+
+  // Select account from URL parameter when accounts are loaded
+  useEffect(() => {
+    const accountIdParam = searchParams.get('id')
+    if (accountIdParam && accounts.length > 0) {
+      const accountId = parseInt(accountIdParam)
+      const account = accounts.find(a => a.id === accountId)
+      if (account) {
+        setSelectedAccount(account)
+        // Set the correct filter based on account type
+        setAccountFilter(account.internal ? "internal" : "external")
+      }
+    }
+  }, [accounts, searchParams])
 
   const getTypeLabel = (type: string) => {
     const types: Record<string, string> = {
@@ -593,5 +609,17 @@ export default function FinancePage() {
         </SheetContent>
       </Sheet>
     </div>
+  )
+}
+
+export default function FinancePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
+        <p className="text-muted-foreground">Բեռնում...</p>
+      </div>
+    }>
+      <FinancePageContent />
+    </Suspense>
   )
 }

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
+import { useTaxSync } from "@/hooks/use-tax-sync"
 import { Loader2, Download, Database, Calendar, AlertCircle, FileText, RefreshCw, Bell } from "lucide-react"
 import { EInvoicingClient } from "@/lib/einvoicing-client"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -43,7 +44,7 @@ export default function TaxServicePage() {
   const [credentials, setCredentials] = useState<TaxServiceCredentials | null>(null)
   const [syncSettings, setSyncSettings] = useState<SyncSettings | null>(null)
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
+  const [manualSyncing, setManualSyncing] = useState(false)
   const [fromDate, setFromDate] = useState("")
   const [syncStats, setSyncStats] = useState<{
     totalInvoices: number
@@ -60,6 +61,9 @@ export default function TaxServicePage() {
 
   const { toast } = useToast()
   const supabase = createClient()
+  const { syncing: globalSyncing, triggerSync, refresh: refreshGlobalSync } = useTaxSync()
+
+  const syncing = manualSyncing || globalSyncing
 
   const SYNC_INTERVAL = 30 * 60 * 1000 // 30 minutes in milliseconds
 
@@ -73,43 +77,20 @@ export default function TaxServicePage() {
     setFromDate(thirtyDaysAgo.toISOString().split("T")[0])
   }, [])
 
-  // Auto-sync every 30 minutes
+  // Update countdown display every second
   useEffect(() => {
-    if (!credentials || !syncSettings?.lastAnchor) return
+    if (!syncSettings?.lastSyncDate) return
 
-    const scheduleNextSync = () => {
-      const lastSync = syncSettings.lastSyncDate ? new Date(syncSettings.lastSyncDate).getTime() : 0
+    const intervalId = setInterval(() => {
+      const lastSync = new Date(syncSettings.lastSyncDate!).getTime()
       const now = Date.now()
       const timeSinceLastSync = now - lastSync
       const timeUntilNextSync = Math.max(0, SYNC_INTERVAL - timeSinceLastSync)
-
       setNextSyncIn(timeUntilNextSync)
-
-      const timeoutId = setTimeout(() => {
-        handleAutoSync()
-      }, timeUntilNextSync)
-
-      return timeoutId
-    }
-
-    const timeoutId = scheduleNextSync()
-
-    // Update countdown every second
-    const intervalId = setInterval(() => {
-      if (syncSettings.lastSyncDate) {
-        const lastSync = new Date(syncSettings.lastSyncDate).getTime()
-        const now = Date.now()
-        const timeSinceLastSync = now - lastSync
-        const timeUntilNextSync = Math.max(0, SYNC_INTERVAL - timeSinceLastSync)
-        setNextSyncIn(timeUntilNextSync)
-      }
     }, 1000)
 
-    return () => {
-      clearTimeout(timeoutId)
-      clearInterval(intervalId)
-    }
-  }, [credentials, syncSettings])
+    return () => clearInterval(intervalId)
+  }, [syncSettings])
 
   const fetchCredentials = async () => {
     try {
@@ -249,256 +230,6 @@ export default function TaxServicePage() {
     setIsDetailDrawerOpen(true)
   }
 
-  const handleAutoSync = useCallback(async () => {
-    if (!credentials || !syncSettings?.lastAnchor) return
-
-    console.log("[AutoSync] Starting automatic sync...")
-
-    try {
-      // Initialize EInvoicing client
-      const eInvoicing = new EInvoicingClient({
-        tin: credentials.tin,
-        username: credentials.login,
-        password: credentials.password,
-      })
-
-      await eInvoicing.init()
-
-      // Set anchor to last sync
-      eInvoicing.setAnchor(syncSettings.lastAnchor)
-
-      // Fetch invoices
-      const result = await eInvoicing.getInvoices()
-
-      console.log(`[AutoSync] Fetched ${result.count} invoices`)
-
-      let newCount = 0
-
-      // Process and store invoices
-      for (const invoice of result.data) {
-        try {
-          // Check if invoice exists
-          const { data: existingInvoice } = await supabase
-            .from("invoice")
-            .select("id")
-            .eq("id", invoice.id)
-            .single()
-
-          // Fetch invoice items first to get full details (needed for partner creation)
-          let fullInvoice = null
-          let invoiceItems: any[] = []
-          if (invoice.type) {
-            try {
-              const itemsResponse = await eInvoicing.getInvoiceItems(invoice.id, invoice.type)
-              console.log(`[AutoSync] Items response structure:`, {
-                isArray: Array.isArray(itemsResponse),
-                hasOk: 'ok' in (itemsResponse || {}),
-                ok: (itemsResponse as any)?.ok,
-                hasItems: 'items' in (itemsResponse || {}),
-                hasPayload: 'payload' in (itemsResponse || {}),
-              })
-
-              // Handle response - could be array (error case) or object with ok/items/payload
-              if (Array.isArray(itemsResponse)) {
-                // Error case - API returned array directly
-                invoiceItems = itemsResponse
-                console.log(`[AutoSync] Got array response with ${itemsResponse.length} items`)
-              } else if (itemsResponse && typeof itemsResponse === 'object' && 'ok' in itemsResponse) {
-                // Success case - API returned { ok, items, payload }
-                if ((itemsResponse as any).ok) {
-                  fullInvoice = (itemsResponse as any).payload
-                  invoiceItems = (itemsResponse as any).items || []
-                  console.log(`[AutoSync] Got object response - ok: true, items: ${invoiceItems.length}, payload:`, fullInvoice ? 'yes' : 'no')
-                } else {
-                  console.log(`[AutoSync] Got object response with ok: false`)
-                }
-              } else {
-                console.log(`[AutoSync] Unexpected response type:`, typeof itemsResponse)
-              }
-            } catch (itemsError) {
-              console.error(`[AutoSync] Error fetching items for ${invoice.id}:`, itemsError)
-            }
-          }
-
-          // Create partner BEFORE saving invoice (to satisfy foreign key constraint)
-          // We need to ensure partner exists for ALL supplier_tin values (except when we are the supplier)
-          if (!existingInvoice && invoice.supplierTin && invoice.supplierTin !== credentials.tin) {
-            console.log(`[AutoSync] Checking/creating partner for supplier ${invoice.supplierTin}`)
-            console.log(`[AutoSync] Full invoice payload:`, fullInvoice)
-            console.log(`[AutoSync] Invoice list data:`, invoice)
-
-            const partnerData = {
-              supplierTin: invoice.supplierTin,
-              supplierName: fullInvoice?.supplierName || (invoice as any).supplierName || invoice.supplierTin,
-              supplierAddress: fullInvoice?.deliveryAddress || (invoice as any).deliveryAddress || "",
-              supplierBank: fullInvoice?.supplierBank || (invoice as any).supplierBank,
-              supplierAccNo: fullInvoice?.supplierAccNo || (invoice as any).supplierAccNo,
-              invoiceType: invoice.type,
-            }
-
-            console.log(`[AutoSync] Partner data for creation:`, partnerData)
-
-            const partnerResult = await ensurePartnerExists(
-              supabase,
-              partnerData,
-              credentials.tin
-            )
-
-            // If partner creation failed, skip this invoice
-            if (!partnerResult) {
-              console.error(`[AutoSync] Failed to create partner for ${invoice.supplierTin}, skipping invoice ${invoice.id}`)
-              continue
-            }
-          }
-
-          // Now save the invoice (partner exists at this point)
-          if (!existingInvoice) {
-            const invoiceData = {
-              id: invoice.id,
-              serial_no: invoice.serialNo || null,
-              type: invoice.type || null,
-              sort: invoice.sort || null,
-              approval_state: invoice.approvalState || null,
-              status: invoice.status || null,
-              correction_state: invoice.correctionState || null,
-              correction_type: invoice.correctionType || null,
-              created_at: invoice.createdAt ? new Date(invoice.createdAt).toISOString() : null,
-              issued_at: invoice.issuedAt ? new Date(invoice.issuedAt).toISOString() : null,
-              approved_at: invoice.approvedAt ? new Date(invoice.approvedAt).toISOString() : null,
-              delivered_at: invoice.deliveredAt ? new Date(invoice.deliveredAt).toISOString() : null,
-              dealt_at: invoice.dealtAt ? new Date(invoice.dealtAt).toISOString() : null,
-              cancelled_at: invoice.canceledAt ? new Date(invoice.canceledAt).toISOString() : null,
-              supplier_tin: invoice.supplierTin || null,
-              buyer_tin: invoice.buyerTin || null,
-              delivery_address: invoice.deliveryAddress || null,
-              destination_address: invoice.destinationAddress || null,
-              env_tax: invoice.envTax || null,
-              total_value: invoice.totalValue || null,
-              total_vat_amount: invoice.totalVatAmount || null,
-              total: invoice.total || null,
-              cancellation_reason: invoice.cancellationReason || null,
-              canceled_notified: invoice.canceledNotified || null,
-              ben_canceled_notified: invoice.benCanceledNotified || null,
-              ben_issued_notified: invoice.benIssuedNotified || null,
-              user_name: invoice.userName || null,
-              final_use: invoice.finalUse || null,
-              has_codes: invoice.hasCodes || null,
-              additional_info: invoice.additionalInfo || null,
-              other_data: invoice.otherData || null,
-              seen: false, // New invoices are unseen
-            }
-
-            const { error } = await supabase.from("invoice").insert(invoiceData)
-
-            if (error) throw error
-            newCount++
-          }
-
-          // Store invoice items (for both new and existing invoices)
-          if (invoice.type && invoiceItems.length > 0) {
-            try {
-              // Parse items from invoiceItems
-              const items = invoiceItems
-              console.log(`[AutoSync] Processing ${items.length} items for invoice ${invoice.id}`)
-
-              if (items.length > 0) {
-                // Delete existing items for this invoice first
-                const { error: deleteError } = await supabase
-                  .from("invoice_items")
-                  .delete()
-                  .eq("invoice_id", invoice.id)
-
-                if (deleteError) {
-                  console.error(`[AutoSync] Error deleting old items:`, deleteError)
-                }
-
-                // Insert new items
-                const itemsData = items.map((item: any, index: number) => ({
-                  invoice_id: invoice.id,
-                  seq_no: item.seqNo || index + 1,
-                  name: item.name || null,
-                  unit: item.unit || null,
-                  quantity: item.quantity || null,
-                  unit_price: item.unitPrice || null,
-                  total_value: item.totalValue || null,
-                  classifier_id: item.classifierId || null,
-                  deal_type: item.dealType || null,
-                  vat_rate: item.vatRate || null,
-                  vat_amount: item.vatAmount || null,
-                  total: item.total || null,
-                  inc_env_tax: item.incEnvTax || null,
-                  other_data: item.otherData || null,
-                }))
-
-                console.log(`[AutoSync] Inserting items for invoice ${invoice.id}:`, itemsData.length)
-                const { error: itemsError } = await supabase
-                  .from("invoice_items")
-                  .insert(itemsData)
-
-                if (itemsError) {
-                  console.error(`[AutoSync] Error inserting items for invoice ${invoice.id}:`, itemsError)
-                } else {
-                  console.log(`[AutoSync] ✓ Successfully saved ${itemsData.length} items for invoice ${invoice.id}`)
-
-                  // Create transfer for incoming invoices if partner has a warehouse
-                  if (!existingInvoice && invoice.buyerTin === credentials.tin && invoice.supplierTin) {
-                    // Get partner warehouse ID
-                    const { data: partner } = await supabase
-                      .from("partner")
-                      .select("warehouse_id")
-                      .eq("tin", invoice.supplierTin)
-                      .single()
-
-                    if (partner?.warehouse_id) {
-                      console.log(`[AutoSync] Creating transfer for invoice ${invoice.id}`)
-                      const transferResult = await createTransferFromInvoice(
-                        supabase,
-                        invoice.id,
-                        partner.warehouse_id
-                      )
-
-                      if (transferResult.transferId) {
-                        console.log(`[AutoSync] ✓ Created transfer ${transferResult.transferId} for invoice ${invoice.id}`)
-                      } else {
-                        console.error(`[AutoSync] Failed to create transfer for invoice ${invoice.id}:`, transferResult.errors)
-                      }
-                    } else {
-                      console.log(`[AutoSync] No warehouse for partner, skipping transfer creation`)
-                    }
-                  }
-                }
-              }
-            } catch (itemError) {
-              console.error(`[AutoSync] Error processing items for invoice ${invoice.id}:`, itemError)
-            }
-          }
-        } catch (error) {
-          console.error(`Error processing invoice ${invoice.id}:`, error)
-        }
-      }
-
-      // Update sync settings
-      await updateSyncSettings({
-        lastSyncDate: new Date().toISOString(),
-        lastAnchor: result.anchor,
-      })
-
-      // Update unseen count
-      await fetchUnseenCount()
-
-      if (newCount > 0) {
-        toast({
-          title: "Ավտոմատ սինքրոնացում",
-          description: `Գտնվեց ${newCount} նոր հաշիվ-ապրանքագիր`,
-        })
-      }
-
-      console.log(`[AutoSync] Complete. ${newCount} new invoices`)
-    } catch (error) {
-      console.error("[AutoSync] Error:", error)
-    }
-  }, [credentials, syncSettings, supabase, toast])
-
   const handleQuickSync = async () => {
     if (!credentials || !syncSettings?.lastAnchor) {
       toast({
@@ -509,10 +240,12 @@ export default function TaxServicePage() {
       return
     }
 
-    setSyncing(true)
-
     try {
-      await handleAutoSync()
+      await triggerSync()
+      await fetchInvoices(invoiceType)
+      await fetchUnseenCount()
+      await refreshGlobalSync()
+
       toast({
         title: "Հաջողություն",
         description: "Սինքրոնացումը ավարտվեց",
@@ -523,8 +256,6 @@ export default function TaxServicePage() {
         description: "Չհաջողվեց սինքրոնացնել տվյալները",
         variant: "destructive",
       })
-    } finally {
-      setSyncing(false)
     }
   }
 
@@ -547,7 +278,7 @@ export default function TaxServicePage() {
       return
     }
 
-    setSyncing(true)
+    setManualSyncing(true)
     setSyncStats(null)
 
     try {
@@ -831,7 +562,7 @@ export default function TaxServicePage() {
         variant: "destructive",
       })
     } finally {
-      setSyncing(false)
+      setManualSyncing(false)
     }
   }
 

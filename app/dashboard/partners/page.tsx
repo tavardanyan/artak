@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,14 +26,27 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Handshake } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Plus, Handshake, ExternalLink } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { PartnerEditDrawer } from "@/components/partner-edit-drawer"
+
+interface PartnerStats {
+  total_transfers: number
+  total_transfers_sum: number
+  approved_transfers: number
+  approved_transfers_sum: number
+  pending_transfers: number
+  pending_transfers_sum: number
+  total_transactions: number
+}
 
 interface Partner {
   id: number
@@ -44,14 +58,17 @@ interface Partner {
   warehouse_id: number | null
   account?: { name: string; currency: string }
   warehouse?: { name: string }
-  account_balance?: number
-  pending_balance?: number
+  stats?: PartnerStats
 }
 
 export default function PartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([])
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState("all")
+  const router = useRouter()
   const { toast } = useToast()
 
   // Form state
@@ -98,27 +115,78 @@ export default function PartnersPage() {
         return
       }
 
-      // Fetch balances for partners with accounts
-      const partnersWithBalances = await Promise.all(
+      // Fetch statistics for each partner
+      const partnersWithStats = await Promise.all(
         (data || []).map(async (partner) => {
-          if (partner.account_id) {
-            const { data: balanceData } = await supabase
-              .from("account_balance")
-              .select("balance, pending_balance")
-              .eq("account_id", partner.account_id)
-              .single()
+          const stats: PartnerStats = {
+            total_transfers: 0,
+            total_transfers_sum: 0,
+            approved_transfers: 0,
+            approved_transfers_sum: 0,
+            pending_transfers: 0,
+            pending_transfers_sum: 0,
+            total_transactions: 0,
+          }
 
-            return {
-              ...partner,
-              account_balance: balanceData?.balance || 0,
-              pending_balance: balanceData?.pending_balance || 0
+          // Get transfer statistics if partner has a warehouse
+          if (partner.warehouse_id) {
+            // Get all transfers FROM this partner's warehouse
+            const { data: transfers } = await supabase
+              .from("transfer")
+              .select(`
+                id,
+                acepted_at,
+                rejected_at,
+                transfer_item(qty, unit_price, unit_vat)
+              `)
+              .eq("from", partner.warehouse_id)
+
+            if (transfers) {
+              stats.total_transfers = transfers.length
+
+              transfers.forEach((transfer: any) => {
+                // Calculate transfer total
+                const transferTotal = (transfer.transfer_item || []).reduce((sum: number, item: any) => {
+                  return sum + (item.qty * item.unit_price) + (item.qty * item.unit_vat)
+                }, 0)
+
+                stats.total_transfers_sum += transferTotal
+
+                // Check if approved (acepted_at is set and rejected_at is null)
+                if (transfer.acepted_at && !transfer.rejected_at) {
+                  stats.approved_transfers++
+                  stats.approved_transfers_sum += transferTotal
+                } else if (!transfer.acepted_at && !transfer.rejected_at) {
+                  stats.pending_transfers++
+                  stats.pending_transfers_sum += transferTotal
+                }
+              })
             }
           }
-          return partner
+
+          // Get transaction statistics if partner has an account
+          if (partner.account_id) {
+            // Get sum of all approved transactions TO this partner's account
+            const { data: transactions } = await supabase
+              .from("transaction")
+              .select("amount")
+              .eq("to", partner.account_id)
+              .not("accepted_at", "is", null)
+              .is("rejected_at", null)
+
+            if (transactions) {
+              stats.total_transactions = transactions.reduce((sum, t) => sum + t.amount, 0)
+            }
+          }
+
+          return {
+            ...partner,
+            stats
+          }
         })
       )
 
-      setPartners(partnersWithBalances)
+      setPartners(partnersWithStats)
     } catch (error) {
       console.error("Error:", error)
     } finally {
@@ -290,6 +358,27 @@ export default function PartnersPage() {
     return `${formatted} ${symbol}`
   }
 
+  const getFilteredPartners = () => {
+    if (activeTab === "all") return partners
+    if (activeTab === "suppliers") return partners.filter(p => p.type === "supplier")
+    if (activeTab === "customers") return partners.filter(p => p.type === "client" || p.type === "customer")
+    if (activeTab === "others") return partners.filter(p => p.type !== "supplier" && p.type !== "client" && p.type !== "customer")
+    return partners
+  }
+
+  const filteredPartners = getFilteredPartners()
+
+  const getTabCounts = () => {
+    return {
+      all: partners.length,
+      suppliers: partners.filter(p => p.type === "supplier").length,
+      customers: partners.filter(p => p.type === "client" || p.type === "customer").length,
+      others: partners.filter(p => p.type !== "supplier" && p.type !== "client" && p.type !== "customer").length,
+    }
+  }
+
+  const tabCounts = getTabCounts()
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -305,71 +394,180 @@ export default function PartnersPage() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Բոլոր գործընկերները</CardTitle>
-          <CardDescription>
-            Ձեր հաճախորդների, մատակարարների և կապալառուների ցանկ
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <p className="text-muted-foreground">Բեռնում...</p>
-            </div>
-          ) : partners.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <Handshake className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
-              <p className="text-muted-foreground">Գործընկերներ չկան</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Անվանում</TableHead>
-                  <TableHead>ՀՎՀՀ</TableHead>
-                  <TableHead>Հասցե</TableHead>
-                  <TableHead>Տեսակ</TableHead>
-                  <TableHead>Հաշիվ</TableHead>
-                  <TableHead>Մնացորդ</TableHead>
-                  <TableHead>Ընթացիկ մնացորդ</TableHead>
-                  <TableHead>Պահեստ</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {partners.map((partner) => (
-                  <TableRow key={partner.id} className="cursor-pointer hover:bg-accent">
-                    <TableCell className="font-medium">{partner.name}</TableCell>
-                    <TableCell>{partner.tin || "-"}</TableCell>
-                    <TableCell className="max-w-[200px] truncate">
-                      {partner.address || "-"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={getTypeBadgeVariant(partner.type)}>
-                        {getTypeLabel(partner.type)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{partner.account?.name || "-"}</TableCell>
-                    <TableCell className="font-medium">
-                      {partner.account_id
-                        ? formatCurrency(partner.account_balance, partner.account?.currency)
-                        : "-"
-                      }
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {partner.account_id
-                        ? formatCurrency(partner.pending_balance, partner.account?.currency)
-                        : "-"
-                      }
-                    </TableCell>
-                    <TableCell>{partner.warehouse?.name || "-"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="all">
+            Բոլորը ({tabCounts.all})
+          </TabsTrigger>
+          <TabsTrigger value="suppliers">
+            Մատակարարներ ({tabCounts.suppliers})
+          </TabsTrigger>
+          <TabsTrigger value="customers">
+            Հաճախորդներ ({tabCounts.customers})
+          </TabsTrigger>
+          <TabsTrigger value="others">
+            Այլ ({tabCounts.others})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value={activeTab} className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {activeTab === "all" && "Բոլոր գործընկերները"}
+                {activeTab === "suppliers" && "Մատակարարներ"}
+                {activeTab === "customers" && "Հաճախորդներ"}
+                {activeTab === "others" && "Այլ գործընկերներ"}
+              </CardTitle>
+              <CardDescription>
+                {activeTab === "all" && "Ձեր բոլոր գործընկերների ցանկ"}
+                {activeTab === "suppliers" && "Ձեր մատակարարների ցանկ"}
+                {activeTab === "customers" && "Ձեր հաճախորդների և պատվիրատուների ցանկ"}
+                {activeTab === "others" && "Կապալառուներ և այլ գործընկերներ"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex justify-center py-8">
+                  <p className="text-muted-foreground">Բեռնում...</p>
+                </div>
+              ) : filteredPartners.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Handshake className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
+                  <p className="text-muted-foreground">
+                    {activeTab === "all" && "Գործընկերներ չկան"}
+                    {activeTab === "suppliers" && "Մատակարարներ չկան"}
+                    {activeTab === "customers" && "Հաճախորդներ չկան"}
+                    {activeTab === "others" && "Այլ գործընկերներ չկան"}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="min-w-[150px]">Անվանում</TableHead>
+                        <TableHead>ՀՎՀՀ</TableHead>
+                        <TableHead>Տեսակ</TableHead>
+                        <TableHead className="text-center">Հաշիվ</TableHead>
+                        <TableHead className="text-center">Պահեստ</TableHead>
+                        <TableHead className="text-right">Տեղափոխություն (ընդամենը)</TableHead>
+                        <TableHead className="text-right">Վճարումներ</TableHead>
+                        <TableHead className="text-right">Մնացորդ</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredPartners.map((partner) => {
+                        const currency = partner.account?.currency || "amd"
+                        const balance = (partner.stats?.total_transfers_sum || 0) - (partner.stats?.total_transactions || 0)
+
+                        return (
+                          <TableRow
+                            key={partner.id}
+                            className="cursor-pointer hover:bg-accent/50"
+                            onClick={() => {
+                              setSelectedPartnerId(partner.id)
+                              setIsEditDrawerOpen(true)
+                            }}
+                          >
+                            <TableCell className="font-medium">{partner.name}</TableCell>
+                            <TableCell>{partner.tin || "-"}</TableCell>
+                            <TableCell>
+                              <Badge variant={getTypeBadgeVariant(partner.type)}>
+                                {getTypeLabel(partner.type)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {partner.account_id ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    router.push(`/dashboard/finance?id=${partner.account_id}`)
+                                  }}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                </Button>
+                              ) : (
+                                "-"
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {partner.warehouse_id ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    router.push(`/dashboard/warehouse?id=${partner.warehouse_id}`)
+                                  }}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                </Button>
+                              ) : (
+                                "-"
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex flex-col items-end">
+                                <span className="font-medium">
+                                  {formatCurrency(partner.stats?.total_transfers_sum || 0, currency)}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({partner.stats?.total_transfers || 0})
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right font-medium text-blue-600">
+                              {formatCurrency(partner.stats?.total_transactions || 0, currency)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <span className={`font-bold ${balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {formatCurrency(balance, currency)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                    <TableFooter>
+                      <TableRow>
+                        <TableCell colSpan={5} className="font-bold">Ընդամենը</TableCell>
+                        <TableCell className="text-right font-bold">
+                          {formatCurrency(
+                            filteredPartners.reduce((sum, p) => sum + (p.stats?.total_transfers_sum || 0), 0),
+                            "amd"
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-blue-600">
+                          {formatCurrency(
+                            filteredPartners.reduce((sum, p) => sum + (p.stats?.total_transactions || 0), 0),
+                            "amd"
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-bold">
+                          {(() => {
+                            const totalBalance = filteredPartners.reduce((sum, p) => {
+                              const balance = (p.stats?.total_transfers_sum || 0) - (p.stats?.total_transactions || 0)
+                              return sum + balance
+                            }, 0)
+                            return (
+                              <span className={totalBalance >= 0 ? 'text-red-600' : 'text-green-600'}>
+                                {formatCurrency(totalBalance, "amd")}
+                              </span>
+                            )
+                          })()}
+                        </TableCell>
+                      </TableRow>
+                    </TableFooter>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Add Partner Drawer */}
       <Sheet open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
@@ -570,6 +768,14 @@ export default function PartnersPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* Partner Edit Drawer */}
+      <PartnerEditDrawer
+        open={isEditDrawerOpen}
+        onOpenChange={setIsEditDrawerOpen}
+        partnerId={selectedPartnerId}
+        onSuccess={fetchPartners}
+      />
     </div>
   )
 }

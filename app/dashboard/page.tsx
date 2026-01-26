@@ -97,6 +97,8 @@ export default function DashboardPage() {
   const [invoicesPage, setInvoicesPage] = useState(1)
   const [totalInvoices, setTotalInvoices] = useState(0)
   const invoicesPerPage = 10
+  const [partnerTotals, setPartnerTotals] = useState({ transfers: 0, payments: 0, balance: 0 })
+  const [internalAccountsBalance, setInternalAccountsBalance] = useState(0)
 
   const { toast } = useToast()
   const supabase = createClient()
@@ -109,6 +111,8 @@ export default function DashboardPage() {
     fetchWarehouses()
     fetchTransfers()
     fetchInvoices()
+    fetchPartnerTotals()
+    fetchInternalAccountsBalance()
   }, [currentPage, transfersPage, invoicesPage])
 
   const fetchMatchLimit = async () => {
@@ -242,7 +246,7 @@ export default function DashboardPage() {
 
       if (error) throw error
 
-      setTransfers(data || [])
+      setTransfers((data || []) as unknown as Transfer[])
     } catch (error) {
       console.error("Error fetching transfers:", error)
       toast({
@@ -286,7 +290,7 @@ export default function DashboardPage() {
 
       if (error) throw error
 
-      setInvoices(data || [])
+      setInvoices((data || []) as unknown as Invoice[])
     } catch (error) {
       console.error("Error fetching invoices:", error)
       toast({
@@ -463,12 +467,124 @@ export default function DashboardPage() {
     }
   }
 
+  const fetchPartnerTotals = async () => {
+    try {
+      // Get all partners with their accounts and warehouses
+      const { data: partners, error: partnersError } = await supabase
+        .from("partner")
+        .select("id, account_id, warehouse_id")
+
+      if (partnersError) throw partnersError
+
+      let totalTransfers = 0
+      let totalPayments = 0
+
+      // For each partner, calculate their statistics
+      for (const partner of partners || []) {
+        // Get transfer statistics if partner has a warehouse
+        if (partner.warehouse_id) {
+          const { data: transfers } = await supabase
+            .from("transfer")
+            .select(`
+              id,
+              acepted_at,
+              rejected_at,
+              transfer_item(qty, unit_price, unit_vat)
+            `)
+            .eq("from", partner.warehouse_id)
+
+          if (transfers) {
+            transfers.forEach((transfer: any) => {
+              const transferTotal = (transfer.transfer_item || []).reduce((sum: number, item: any) => {
+                return sum + (item.qty * item.unit_price) + (item.qty * item.unit_vat)
+              }, 0)
+              totalTransfers += transferTotal
+            })
+          }
+        }
+
+        // Get transaction statistics if partner has an account
+        if (partner.account_id) {
+          const { data: transactions } = await supabase
+            .from("transaction")
+            .select("amount")
+            .eq("to", partner.account_id)
+            .not("accepted_at", "is", null)
+            .is("rejected_at", null)
+
+          if (transactions) {
+            totalPayments += transactions.reduce((sum, t) => sum + t.amount, 0)
+          }
+        }
+      }
+
+      const balance = totalTransfers - totalPayments
+
+      setPartnerTotals({
+        transfers: totalTransfers,
+        payments: totalPayments,
+        balance: balance
+      })
+    } catch (error) {
+      console.error("Error fetching partner totals:", error)
+    }
+  }
+
+  const fetchInternalAccountsBalance = async () => {
+    try {
+      // Get all internal accounts (not related to partners or persons)
+      const { data: accounts, error: accountsError } = await supabase
+        .from("account")
+        .select("id")
+        .eq("internal", true)
+
+      if (accountsError) throw accountsError
+
+      let totalBalance = 0
+
+      // For each internal account, calculate balance
+      for (const account of accounts || []) {
+        // Get incoming transactions
+        const { data: incoming } = await supabase
+          .from("transaction")
+          .select("amount")
+          .eq("to", account.id)
+          .not("accepted_at", "is", null)
+          .is("rejected_at", null)
+
+        // Get outgoing transactions
+        const { data: outgoing } = await supabase
+          .from("transaction")
+          .select("amount")
+          .eq("from", account.id)
+          .not("accepted_at", "is", null)
+          .is("rejected_at", null)
+
+        const incomingSum = (incoming || []).reduce((sum, t) => sum + t.amount, 0)
+        const outgoingSum = (outgoing || []).reduce((sum, t) => sum + t.amount, 0)
+
+        totalBalance += (incomingSum - outgoingSum)
+      }
+
+      setInternalAccountsBalance(totalBalance)
+    } catch (error) {
+      console.error("Error fetching internal accounts balance:", error)
+    }
+  }
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString("hy-AM", {
       year: "numeric",
       month: "short",
       day: "numeric",
     })
+  }
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amount) + " ֏"
   }
 
   const totalPages = Math.ceil(totalItems / itemsPerPage)
@@ -490,6 +606,63 @@ export default function DashboardPage() {
         <p className="text-sm text-muted-foreground">
           Ստուգեք և կապեք նոր ապրանքները գոյություն ունեցող ապրանքների հետ
         </p>
+      </div>
+
+      {/* Financial Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Գործընկերների ընդհանուր</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Տեղափոխություններ:</span>
+                <span className="font-medium">{formatCurrency(partnerTotals.transfers)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Վճարումներ:</span>
+                <span className="font-medium text-blue-600">{formatCurrency(partnerTotals.payments)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm pt-2 border-t">
+                <span className="font-medium">Մնացորդ:</span>
+                <span className={`font-bold ${partnerTotals.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {formatCurrency(partnerTotals.balance)}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Ներքին հաշիվների մնացորդ</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {formatCurrency(internalAccountsBalance)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Ներքին հաշիվների ընդհանուր մնացորդ
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Տարբերություն</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${
+              (internalAccountsBalance - partnerTotals.balance) >= 0 ? 'text-green-600' : 'text-red-600'
+            }`}>
+              {formatCurrency(internalAccountsBalance - partnerTotals.balance)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Ներքին հաշիվներ - Գործընկերների մնացորդ
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
