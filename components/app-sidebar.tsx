@@ -17,6 +17,7 @@ import {
   Handshake,
   Plus,
   Contact,
+  Package,
 } from "lucide-react"
 
 import {
@@ -79,6 +80,11 @@ const mainNavItems = [
     title: "Պահեստ",
     url: "/dashboard/warehouse",
     icon: Warehouse,
+  },
+  {
+    title: "Ապրանքներ",
+    url: "/dashboard/items",
+    icon: Package,
   },
   {
     title: "Գործընկերներ",
