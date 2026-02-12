@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select"
 import { Plus, ArrowDownLeft, ArrowUpRight, Wallet } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
 
 interface Transaction {
   id: number
@@ -73,7 +74,7 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
   const [loading, setLoading] = useState(true)
   const [isCreateTransactionDrawerOpen, setIsCreateTransactionDrawerOpen] = useState(false)
   const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = useState(false)
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
+  const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
 
   // Create transaction state
@@ -214,69 +215,14 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
 
   // Handle transaction row click
   const handleTransactionClick = (transaction: Transaction) => {
-    setSelectedTransaction(transaction)
+    setSelectedTransactionId(transaction.id)
     setIsTransactionDrawerOpen(true)
   }
 
-  // Accept transaction
-  const handleAcceptTransaction = async (transactionId: number) => {
-    try {
-      const { error } = await supabase
-        .from("transaction")
-        .update({ accepted_at: new Date().toISOString() })
-        .eq("id", transactionId)
-
-      if (error) throw error
-
-      toast({
-        title: "Հաջողություն",
-        description: "Գործարքը ընդունվեց",
-      })
-
-      setIsTransactionDrawerOpen(false)
-      fetchTransactions()
-      fetchBalance()
-    } catch (error) {
-      console.error("Error:", error)
-      toast({
-        title: "Սխալ",
-        description: "Չհաջողվեց ընդունել գործարքը",
-        variant: "destructive",
-      })
-    }
-  }
-
-  // Reject transaction
-  const handleRejectTransaction = async (transactionId: number) => {
-    try {
-      const { error } = await supabase
-        .from("transaction")
-        .update({ rejected_at: new Date().toISOString() })
-        .eq("id", transactionId)
-
-      if (error) throw error
-
-      toast({
-        title: "Հաջողություն",
-        description: "Գործարքը մերժվեց",
-      })
-
-      setIsTransactionDrawerOpen(false)
-      fetchTransactions()
-      fetchBalance()
-    } catch (error) {
-      console.error("Error:", error)
-      toast({
-        title: "Սխալ",
-        description: "Չհաջողվեց մերժել գործարքը",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const canModifyTransaction = (transaction: Transaction | null) => {
-    if (!transaction) return false
-    return !transaction.accepted_at && !transaction.rejected_at
+  // Refresh data after transaction update
+  const handleTransactionUpdate = () => {
+    fetchTransactions()
+    fetchBalance()
   }
 
   useEffect(() => {
@@ -544,104 +490,13 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
       </Sheet>
 
       {/* Transaction Details Drawer */}
-      <Sheet open={isTransactionDrawerOpen} onOpenChange={setIsTransactionDrawerOpen}>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle>Գործարքի մանրամասներ #{selectedTransaction?.id}</SheetTitle>
-            <SheetDescription>
-              {selectedTransaction && (
-                <>
-                  {getTransactionType(selectedTransaction).type === "outgoing"
-                    ? `${selectedTransaction.from_account?.name || `#${selectedTransaction.from}`} → ${selectedTransaction.to_account?.name || `#${selectedTransaction.to}`}`
-                    : `${selectedTransaction.from_account?.name || `#${selectedTransaction.from}`} → ${selectedTransaction.to_account?.name || `#${selectedTransaction.to}`}`
-                  }
-                </>
-              )}
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="space-y-4 py-6">
-            {/* Status and Dates */}
-            <div className="flex flex-col gap-4 pb-4 border-b">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Ստեղծվել է</p>
-                  <p className="font-medium">{formatDate(selectedTransaction?.created_at || null)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Ընդունվել է</p>
-                  <p className="font-medium">{formatDate(selectedTransaction?.accepted_at || null)}</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Մերժվել է</p>
-                  <p className="font-medium">{formatDate(selectedTransaction?.rejected_at || null)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Վիճակ</p>
-                  <div className="mt-1">{selectedTransaction && getTransactionStatus(selectedTransaction)}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Transaction Details */}
-            <div className="space-y-4 pb-4 border-b">
-              <div>
-                <p className="text-sm text-muted-foreground">Տեսակ</p>
-                <div className="flex items-center gap-2 mt-1">
-                  {selectedTransaction && getTransactionType(selectedTransaction).icon}
-                  <span className="font-medium">{selectedTransaction && getTransactionType(selectedTransaction).label}</span>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground">Գումար</p>
-                <p className={`text-2xl font-bold mt-1 ${selectedTransaction && getTransactionType(selectedTransaction).color}`}>
-                  {selectedTransaction && (
-                    <>
-                      {getTransactionType(selectedTransaction).amount > 0 ? "+" : ""}
-                      {getTransactionType(selectedTransaction).amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {getCurrencySymbol(accountCurrency)}
-                    </>
-                  )}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground">Հաշիվ</p>
-                <p className="font-medium mt-1">{selectedTransaction && getTransactionType(selectedTransaction).account}</p>
-              </div>
-
-              {selectedTransaction?.note && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Նշում</p>
-                  <p className="mt-1">{selectedTransaction.note}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Action Buttons */}
-            {canModifyTransaction(selectedTransaction) && (
-              <div className="flex gap-2">
-                <Button
-                  variant="default"
-                  className="flex-1"
-                  onClick={() => selectedTransaction && handleAcceptTransaction(selectedTransaction.id)}
-                >
-                  Ընդունել
-                </Button>
-                <Button
-                  variant="destructive"
-                  className="flex-1"
-                  onClick={() => selectedTransaction && handleRejectTransaction(selectedTransaction.id)}
-                >
-                  Մերժել
-                </Button>
-              </div>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+      <TransactionDetailDrawer
+        open={isTransactionDrawerOpen}
+        onOpenChange={setIsTransactionDrawerOpen}
+        transactionId={selectedTransactionId}
+        accountId={accountId}
+        onUpdate={handleTransactionUpdate}
+      />
     </>
   )
 }

@@ -436,6 +436,11 @@ export default function DashboardPage() {
         return
       }
 
+      // Get the transfer to find the associated invoice_id
+      const transfer = transfers.find((t) => t.id === transferId)
+      const invoiceId = transfer?.invoice_id
+
+      // Update the transfer warehouse
       const { error } = await supabase
         .from("transfer")
         .update({ to: newWarehouseId })
@@ -443,9 +448,24 @@ export default function DashboardPage() {
 
       if (error) throw error
 
+      // If transfer has an associated invoice, mark it as seen
+      if (invoiceId) {
+        const { error: invoiceError } = await supabase
+          .from("invoice")
+          .update({ seen: true })
+          .eq("id", invoiceId)
+
+        if (invoiceError) {
+          console.error("Error updating invoice:", invoiceError)
+        }
+      }
+
       // Remove from list
       setTransfers((prev) => prev.filter((t) => t.id !== transferId))
       setTotalTransfers((prev) => prev - 1)
+
+      // Refresh invoices list to remove the invoice from unseen list
+      await fetchInvoices()
 
       toast({
         title: "Հաջողություն",

@@ -44,8 +44,22 @@ interface Transfer {
   delivered_at: string | null
   acepted_at: string | null
   rejected_at: string | null
+  invoice_id: string | null
   from_warehouse?: { name: string }
   to_warehouse?: { name: string }
+  invoice?: {
+    id: string
+    serial_no: string
+    supplier_tin: string
+    total: number
+    created_at: string
+    destination_address: string | null
+    partner?: {
+      name: string
+      tin: string
+      address: string | null
+    }
+  }
 }
 
 interface TransferItem {
@@ -101,6 +115,7 @@ interface Warehouse {
 interface NewTransferItem {
   itemName: string
   itemId: number | null
+  unit: string
   qty: number
   unitPrice: number
   unitVat: number
@@ -138,7 +153,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [fromWarehouse, setFromWarehouse] = useState<number>(warehouseId)
   const [toWarehouse, setToWarehouse] = useState<number | null>(null)
   const [newTransferItems, setNewTransferItems] = useState<NewTransferItem[]>([
-    { itemName: "", itemId: null, qty: 1, unitPrice: 0, unitVat: 0 }
+    { itemName: "", itemId: null, unit: "", qty: 1, unitPrice: 0, unitVat: 0 }
   ])
   const [createTransaction, setCreateTransaction] = useState(false)
   const [fromAccount, setFromAccount] = useState<number | null>(null)
@@ -156,7 +171,16 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
         .select(`
           *,
           from_warehouse:warehouse!transfer_from_fkey(name),
-          to_warehouse:warehouse!transfer_to_fkey(name)
+          to_warehouse:warehouse!transfer_to_fkey(name),
+          invoice:invoice!transfer_invoice_id_fkey(
+            id,
+            serial_no,
+            supplier_tin,
+            total,
+            created_at,
+            destination_address,
+            partner:partner!invoice_supplier_tin_fkey(name, tin, address)
+          )
         `)
         .or(`from.eq.${warehouseId},to.eq.${warehouseId}`)
         .order("created_at", { ascending: false })
@@ -427,7 +451,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const addItemRow = () => {
     setNewTransferItems([
       ...newTransferItems,
-      { itemName: "", itemId: null, qty: 1, unitPrice: 0, unitVat: 0 }
+      { itemName: "", itemId: null, unit: "", qty: 1, unitPrice: 0, unitVat: 0 }
     ])
   }
 
@@ -450,6 +474,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       )
       if (matchingItem) {
         updated[index].itemId = matchingItem.id
+        updated[index].unit = matchingItem.unit || ""
       } else {
         updated[index].itemId = null
       }
@@ -505,7 +530,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
             .insert({
               name: transferItem.itemName,
               code: `ITM${Date.now()}${Math.random().toString(36).substr(2, 5)}`.toUpperCase(),
-              unit: "հատ"
+              unit: transferItem.unit || "հատ"
             })
             .select()
             .single()
@@ -584,7 +609,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       // Reset form
       setFromWarehouse(warehouseId)
       setToWarehouse(null)
-      setNewTransferItems([{ itemName: "", itemId: null, qty: 1, unitPrice: 0, unitVat: 0 }])
+      setNewTransferItems([{ itemName: "", itemId: null, unit: "", qty: 1, unitPrice: 0, unitVat: 0 }])
       setCreateTransaction(false)
       setFromAccount(null)
       setToAccount(null)
@@ -896,7 +921,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
       {/* Transfer Items Drawer */}
       <Sheet open={isTransferDrawerOpen} onOpenChange={setIsTransferDrawerOpen}>
-        <SheetContent className="sm:max-w-2xl">
+        <SheetContent className="w-full sm:max-w-[50vw] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Տեղափոխման մանրամասներ #{selectedTransfer?.id}</SheetTitle>
             <SheetDescription>
@@ -926,6 +951,55 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                 </div>
               </div>
             </div>
+
+            {/* Invoice Information */}
+            {selectedTransfer?.invoice && (
+              <div className="pb-4 border-b">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Ապրանքագիր</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Համար</span>
+                      <span className="font-medium">{selectedTransfer.invoice.serial_no}</span>
+                    </div>
+                    {selectedTransfer.invoice.partner && (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Մատակարար</span>
+                          <span className="font-medium">{selectedTransfer.invoice.partner.name}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">ՀՎՀՀ</span>
+                          <span className="font-medium font-mono">{selectedTransfer.invoice.partner.tin}</span>
+                        </div>
+                        {selectedTransfer.invoice.partner.address && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Մատակարարի հասցե</span>
+                            <span className="font-medium">{selectedTransfer.invoice.partner.address}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {selectedTransfer.invoice.destination_address && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Նշանակման հասցե</span>
+                        <span className="font-medium">{selectedTransfer.invoice.destination_address}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Ամսաթիվ</span>
+                      <span className="font-medium">{formatDate(selectedTransfer.invoice.created_at)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm pt-2 border-t">
+                      <span className="text-muted-foreground">Ընդամենը</span>
+                      <span className="font-bold">{selectedTransfer.invoice.total.toLocaleString()} ֏</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             {/* Action Buttons */}
             {canModifyTransfer(selectedTransfer) && (
@@ -1000,7 +1074,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
       {/* Item Transfers Drawer */}
       <Sheet open={isItemDrawerOpen} onOpenChange={setIsItemDrawerOpen}>
-        <SheetContent className="sm:max-w-2xl">
+        <SheetContent className="w-full sm:max-w-[50vw] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>{selectedItem?.item?.name || "Ապրանք"}</SheetTitle>
             <SheetDescription>
@@ -1202,9 +1276,10 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[40%]">Անվանում</TableHead>
-                      <TableHead className="w-[15%]">Քնկ.</TableHead>
-                      <TableHead className="w-[20%]">Գին</TableHead>
+                      <TableHead className="w-[30%]">Անվանում</TableHead>
+                      <TableHead className="w-[15%]">Միավոր</TableHead>
+                      <TableHead className="w-[10%]">Քնկ.</TableHead>
+                      <TableHead className="w-[15%]">Գին</TableHead>
                       <TableHead className="w-[15%]">ԱԱՀ</TableHead>
                       <TableHead className="w-[10%]"></TableHead>
                     </TableRow>
@@ -1239,6 +1314,14 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                               </Badge>
                             )}
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="text"
+                            placeholder="հատ"
+                            value={item.unit}
+                            onChange={(e) => updateItemRow(index, "unit", e.target.value)}
+                          />
                         </TableCell>
                         <TableCell>
                           <Input

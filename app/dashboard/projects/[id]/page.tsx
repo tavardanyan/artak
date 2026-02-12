@@ -52,6 +52,7 @@ import { Button } from "@/components/ui/button"
 import { WarehouseContent } from "@/components/warehouse-content"
 import { EditProjectDrawer } from "@/components/edit-project-drawer"
 import { PartnerEditDrawer } from "@/components/partner-edit-drawer"
+import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
 
 interface Project {
   id: number
@@ -270,8 +271,10 @@ export default function ProjectPage() {
   const [isEditContractDrawerOpen, setIsEditContractDrawerOpen] = useState(false)
   const [isEditProjectDrawerOpen, setIsEditProjectDrawerOpen] = useState(false)
   const [isPartnerDrawerOpen, setIsPartnerDrawerOpen] = useState(false)
+  const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = useState(false)
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null)
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null)
+  const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchProject()
@@ -1209,7 +1212,14 @@ export default function ProjectPage() {
                     {transactions.map((transaction) => {
                       const isIncoming = transaction.to === project.partner?.account_id
                       return (
-                        <TableRow key={transaction.id}>
+                        <TableRow
+                          key={transaction.id}
+                          className="cursor-pointer hover:bg-accent"
+                          onClick={() => {
+                            setSelectedTransactionId(transaction.id)
+                            setIsTransactionDrawerOpen(true)
+                          }}
+                        >
                           <TableCell className="text-sm">
                             {formatDateTime(transaction.created_at)}
                           </TableCell>
@@ -1288,6 +1298,15 @@ export default function ProjectPage() {
           projectAccountId={project.partner?.account_id}
         />
       )}
+
+      {/* Transaction Detail Drawer */}
+      <TransactionDetailDrawer
+        open={isTransactionDrawerOpen}
+        onOpenChange={setIsTransactionDrawerOpen}
+        transactionId={selectedTransactionId}
+        accountId={project?.partner?.account_id || undefined}
+        onUpdate={fetchTransactions}
+      />
     </div>
   )
 }

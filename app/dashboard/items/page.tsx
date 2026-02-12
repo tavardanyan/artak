@@ -39,7 +39,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
+import { Eye } from "lucide-react"
 
 interface Item {
   id: number
@@ -72,6 +80,12 @@ export default function ItemsPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [updatingItemId, setUpdatingItemId] = useState<number | null>(null)
   const [parentSearchQuery, setParentSearchQuery] = useState("")
+
+  // Item detail drawer state
+  const [selectedItemName, setSelectedItemName] = useState<string | null>(null)
+  const [isItemDetailOpen, setIsItemDetailOpen] = useState(false)
+  const [itemInvoices, setItemInvoices] = useState<any[]>([])
+  const [loadingInvoices, setLoadingInvoices] = useState(false)
 
   // New item form state
   const [newItemName, setNewItemName] = useState("")
@@ -226,6 +240,57 @@ export default function ItemsPage() {
     }
   }
 
+  const handleViewItemDetails = async (itemName: string) => {
+    setSelectedItemName(itemName)
+    setIsItemDetailOpen(true)
+    setLoadingInvoices(true)
+    setItemInvoices([])
+
+    try {
+      // Find invoices containing this item
+      const { data: invoiceItems, error: itemsError } = await supabase
+        .from("invoice_items")
+        .select("invoice_id")
+        .ilike("name", `%${itemName}%`)
+        .limit(10)
+
+      if (itemsError) throw itemsError
+
+      if (invoiceItems && invoiceItems.length > 0) {
+        const invoiceIds = invoiceItems.map(item => item.invoice_id)
+
+        // Fetch invoice details with supplier information
+        const { data: invoices, error: invoicesError } = await supabase
+          .from("invoice")
+          .select(`
+            id,
+            serial_no,
+            created_at,
+            issued_at,
+            total,
+            supplier_tin,
+            destination_address,
+            partner:partner!invoice_supplier_tin_fkey(name, tin, address)
+          `)
+          .in("id", invoiceIds)
+          .order("created_at", { ascending: false })
+
+        if (invoicesError) throw invoicesError
+
+        setItemInvoices(invoices || [])
+      }
+    } catch (error) {
+      console.error("Error fetching item invoices:", error)
+      toast({
+        title: "Սխալ",
+        description: "Չհաջողվեց բեռնել ապրանքագրերը",
+        variant: "destructive",
+      })
+    } finally {
+      setLoadingInvoices(false)
+    }
+  }
+
   const handleCreateItem = async () => {
     if (!newItemName.trim()) {
       toast({
@@ -344,6 +409,7 @@ export default function ItemsPage() {
                       <TableHead>Միավոր</TableHead>
                       <TableHead>Ծնող</TableHead>
                       <TableHead>Կարգավիճակ</TableHead>
+                      <TableHead>Գործողություններ</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -442,6 +508,16 @@ export default function ItemsPage() {
                             </Badge>
                           )}
                         </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleViewItemDetails(item.name)}
+                            title="Դիտել ապրանքագրերը"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -478,6 +554,96 @@ export default function ItemsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Item Detail Drawer */}
+      <Sheet open={isItemDetailOpen} onOpenChange={setIsItemDetailOpen}>
+        <SheetContent className="w-full sm:max-w-[50vw] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Ապրանքագրեր</SheetTitle>
+            <SheetDescription>
+              Վերջին ապրանքագրերը՝ {selectedItemName}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            {loadingInvoices ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : itemInvoices.length === 0 ? (
+              <div className="text-center py-12">
+                <Package className="mx-auto h-12 w-12 text-muted-foreground opacity-50" />
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Այս ապրանքի համար ապրանքագրեր չեն գտնվել
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {itemInvoices.map((invoice) => (
+                  <Card key={invoice.id}>
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <CardTitle className="text-base">
+                            Ապրանքագիր #{invoice.serial_no}
+                          </CardTitle>
+                          <CardDescription className="text-xs mt-1">
+                            {new Date(invoice.issued_at || invoice.created_at).toLocaleDateString('hy-AM', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                            })}
+                          </CardDescription>
+                        </div>
+                        <Badge variant="outline">
+                          {invoice.total?.toLocaleString('hy-AM')} ֏
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {invoice.partner ? (
+                        <div className="space-y-2">
+                          <div>
+                            <p className="text-sm font-medium">Մատակարար</p>
+                            <p className="text-sm text-muted-foreground">
+                              {invoice.partner.name}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">ՀՎՀՀ</p>
+                            <p className="text-sm text-muted-foreground font-mono">
+                              {invoice.partner.tin}
+                            </p>
+                          </div>
+                          {invoice.partner.address && (
+                            <div>
+                              <p className="text-sm font-medium">Մատակարարի հասցե</p>
+                              <p className="text-sm text-muted-foreground">
+                                {invoice.partner.address}
+                              </p>
+                            </div>
+                          )}
+                          {invoice.destination_address && (
+                            <div>
+                              <p className="text-sm font-medium">Նշանակման հասցե</p>
+                              <p className="text-sm text-muted-foreground">
+                                {invoice.destination_address}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">
+                          Մատակարարի տվյալները հասանելի չեն
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Create Item Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
