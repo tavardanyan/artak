@@ -34,7 +34,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Handshake, ExternalLink } from "lucide-react"
+import { Plus, Handshake, ExternalLink, Search } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { PartnerEditDrawer } from "@/components/partner-edit-drawer"
 
@@ -68,6 +68,7 @@ export default function PartnersPage() {
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("all")
+  const [searchQuery, setSearchQuery] = useState("")
   const router = useRouter()
   const { toast } = useToast()
 
@@ -359,11 +360,15 @@ export default function PartnersPage() {
   }
 
   const getFilteredPartners = () => {
-    if (activeTab === "all") return partners
-    if (activeTab === "suppliers") return partners.filter(p => p.type === "supplier")
-    if (activeTab === "customers") return partners.filter(p => p.type === "client" || p.type === "customer")
-    if (activeTab === "others") return partners.filter(p => p.type !== "supplier" && p.type !== "client" && p.type !== "customer")
-    return partners
+    let filtered = partners
+    if (activeTab === "suppliers") filtered = partners.filter(p => p.type === "supplier")
+    else if (activeTab === "customers") filtered = partners.filter(p => p.type === "client" || p.type === "customer")
+    else if (activeTab === "others") filtered = partners.filter(p => p.type !== "supplier" && p.type !== "client" && p.type !== "customer")
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      filtered = filtered.filter(p => p.name.toLowerCase().includes(q) || p.tin?.toLowerCase().includes(q))
+    }
+    return filtered
   }
 
   const filteredPartners = getFilteredPartners()
@@ -392,6 +397,17 @@ export default function PartnersPage() {
           <Plus className="h-4 w-4 mr-2" />
           Ավելացնել գործընկեր
         </Button>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Օրոնել գործընկեր..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9"
+        />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

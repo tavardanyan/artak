@@ -37,6 +37,7 @@ interface Account {
   number: string | null
   currency: string
   internal: boolean
+  _linkedTo?: "staff" | "partner" | null
 }
 
 function FinancePageContent() {
@@ -47,6 +48,7 @@ function FinancePageContent() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [accountFilter, setAccountFilter] = useState<"internal" | "external">("internal")
+  const [externalSubFilter, setExternalSubFilter] = useState<"all" | "partners" | "staff">("all")
   const { toast } = useToast()
 
   // Form state for new account
@@ -90,9 +92,25 @@ function FinancePageContent() {
         return
       }
 
-      setAccounts(data || [])
-      if (data && data.length > 0 && !selectedAccount) {
-        setSelectedAccount(data[0])
+      // Fetch staff and partner account links
+      const [{ data: persons }, { data: partners }] = await Promise.all([
+        supabase.from("person").select("account_id").not("account_id", "is", null),
+        supabase.from("partner").select("account_id").not("account_id", "is", null),
+      ])
+
+      const staffAccountIds = new Set((persons || []).map(p => p.account_id))
+      const partnerAccountIds = new Set((partners || []).map(p => p.account_id))
+
+      const enriched = (data || []).map(account => ({
+        ...account,
+        _linkedTo: staffAccountIds.has(account.id) ? "staff" as const
+          : partnerAccountIds.has(account.id) ? "partner" as const
+          : null,
+      }))
+
+      setAccounts(enriched)
+      if (enriched.length > 0 && !selectedAccount) {
+        setSelectedAccount(enriched[0])
       }
     } catch (error) {
       console.error("Error:", error)
@@ -262,9 +280,16 @@ function FinancePageContent() {
   }
 
   // Filter accounts based on internal/external
-  const filteredAccounts = accounts.filter(account =>
-    accountFilter === "internal" ? account.internal : !account.internal
-  )
+  const filteredAccounts = accounts.filter(account => {
+    if (accountFilter === "internal") return account.internal
+    // External accounts
+    if (!account.internal) {
+      if (externalSubFilter === "all") return true
+      if (externalSubFilter === "staff") return account._linkedTo === "staff"
+      if (externalSubFilter === "partners") return account._linkedTo !== "staff"
+    }
+    return false
+  })
 
   return (
     <div className="flex h-[calc(100vh-4rem)] gap-6">
@@ -280,6 +305,15 @@ function FinancePageContent() {
               <TabsTrigger value="external">Արտաքին</TabsTrigger>
             </TabsList>
           </Tabs>
+          {accountFilter === "external" && (
+            <Tabs value={externalSubFilter} onValueChange={(v) => setExternalSubFilter(v as "all" | "partners" | "staff")} className="mt-2">
+              <TabsList className="grid w-full grid-cols-3 h-8">
+                <TabsTrigger value="all" className="text-xs">Բոլորը</TabsTrigger>
+                <TabsTrigger value="partners" className="text-xs">Գործընկեր</TabsTrigger>
+                <TabsTrigger value="staff" className="text-xs">Աշխատակից</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          )}
         </div>
 
         {/* Account List */}
@@ -292,7 +326,7 @@ function FinancePageContent() {
             <div className="flex flex-col items-center justify-center h-32 text-center">
               <Wallet className="h-12 w-12 text-muted-foreground mb-2" />
               <p className="text-muted-foreground">
-                {accountFilter === "internal" ? "Ներքին հաշիվներ չկան" : "Արտաքին հաշիվներ չկան"}
+                {accountFilter === "internal" ? "Ներքին հաշիվներ չկան" : "Հաշիվներ չկան"}
               </p>
               <p className="text-xs text-muted-foreground">
                 Սեղմեք ներքևի կոճակը՝ ավելացնելու համար

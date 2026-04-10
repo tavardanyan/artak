@@ -4,9 +4,10 @@ import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Phone, Mail, MapPin, Plus, Loader2, LayoutGrid, TableIcon } from "lucide-react"
+import { Phone, Mail, MapPin, Plus, Loader2, LayoutGrid, TableIcon, Search } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { CreatePersonDrawer } from "@/components/create-person-drawer"
 import { EditPersonDrawer } from "@/components/edit-person-drawer"
@@ -99,7 +100,8 @@ export default function StaffPage() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null)
   const [positionFilter, setPositionFilter] = useState<string>("all")
-  const [viewMode, setViewMode] = useState<"cards" | "table">("cards")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [viewMode, setViewMode] = useState<"cards" | "table">("table")
   const { toast } = useToast()
   const supabase = createClient()
 
@@ -131,8 +133,13 @@ export default function StaffPage() {
   }
 
   const filteredStaff = staff.filter((person) => {
-    if (positionFilter === "all") return true
-    return person.position === positionFilter
+    if (positionFilter !== "all" && person.position !== positionFilter) return false
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      const fullName = `${person.first_name} ${person.last_lame || ""}`.toLowerCase()
+      return fullName.includes(q) || person.phone?.toLowerCase().includes(q) || person.email?.toLowerCase().includes(q) || person.nickname?.toLowerCase().includes(q)
+    }
+    return true
   })
 
   return (
@@ -168,6 +175,17 @@ export default function StaffPage() {
             Ավելացնել աշխատակից
           </Button>
         </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Օրոնել աշխատակցի..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9"
+        />
       </div>
 
       {/* Position Filter Tabs */}
