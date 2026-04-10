@@ -149,6 +149,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [isItemDrawerOpen, setIsItemDrawerOpen] = useState(false)
   const [isCreateTransferDrawerOpen, setIsCreateTransferDrawerOpen] = useState(false)
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
+  const [fromWhTab, setFromWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
+  const [toWhTab, setToWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
+  const [destWhTab, setDestWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
   const [loading, setLoading] = useState(true)
 
   // Create transfer state
@@ -971,6 +974,67 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
               </div>
             </div>
 
+            {/* Destination Warehouse Selector */}
+            {selectedTransfer && canModifyTransfer(selectedTransfer) && (
+              <div className="pb-4 border-b">
+                <div className="space-y-2">
+                  <Label>Նշանակման պահեստ</Label>
+                  <Tabs value={destWhTab} onValueChange={(v) => setDestWhTab(v as any)} className="w-full">
+                    <TabsList className="w-full h-8">
+                      <TabsTrigger value="internal" className="text-xs flex-1">Ներքին</TabsTrigger>
+                      <TabsTrigger value="partners" className="text-xs flex-1">Գործընկեր</TabsTrigger>
+                      <TabsTrigger value="suppliers" className="text-xs flex-1">Մատակարար</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                        {warehouses.find(w => w.id === selectedTransfer.to)?.name || "Ընտրեք պահեստը"}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                      <Command>
+                        <CommandInput placeholder="Որոնել պահեստ..." />
+                        <CommandList>
+                          <CommandEmpty>Պահեստ չի գտնվել</CommandEmpty>
+                          <CommandGroup>
+                            {warehouses
+                              .filter(w => {
+                                if (w.id === selectedTransfer.from) return false
+                                if (destWhTab === "internal") return !["supplier", "partner"].includes(w.type)
+                                if (destWhTab === "partners") return w.type === "partner"
+                                if (destWhTab === "suppliers") return w.type === "supplier"
+                                return true
+                              })
+                              .map((w) => (
+                              <CommandItem
+                                key={w.id}
+                                value={w.name}
+                                onSelect={async () => {
+                                  const { error } = await supabase
+                                    .from("transfer")
+                                    .update({ to: w.id })
+                                    .eq("id", selectedTransfer.id)
+                                  if (!error) {
+                                    setSelectedTransfer({ ...selectedTransfer, to: w.id, to_warehouse: { name: w.name } })
+                                    fetchTransfers()
+                                  }
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", selectedTransfer.to === w.id ? "opacity-100" : "opacity-0")} />
+                                {w.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+            )}
+
             {/* Invoice Information */}
             {selectedTransfer?.invoice && (
               <div className="pb-4 border-b">
@@ -1170,6 +1234,13 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Սկսած պահեստից</Label>
+                <Tabs value={fromWhTab} onValueChange={(v) => setFromWhTab(v as any)} className="w-full">
+                  <TabsList className="w-full h-8">
+                    <TabsTrigger value="internal" className="text-xs flex-1">Ներքին</TabsTrigger>
+                    <TabsTrigger value="partners" className="text-xs flex-1">Գործընկեր</TabsTrigger>
+                    <TabsTrigger value="suppliers" className="text-xs flex-1">Մատակարար</TabsTrigger>
+                  </TabsList>
+                </Tabs>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -1187,7 +1258,14 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                       <CommandList>
                         <CommandEmpty>Պահեստ չի գտնվել</CommandEmpty>
                         <CommandGroup>
-                          {warehouses.map((warehouse) => (
+                          {warehouses
+                            .filter(w => {
+                              if (fromWhTab === "internal") return !["supplier", "partner"].includes(w.type)
+                              if (fromWhTab === "partners") return w.type === "partner"
+                              if (fromWhTab === "suppliers") return w.type === "supplier"
+                              return true
+                            })
+                            .map((warehouse) => (
                             <CommandItem
                               key={warehouse.id}
                               value={warehouse.name}
@@ -1206,6 +1284,13 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
               <div className="space-y-2">
                 <Label>Դեպի պահեստ</Label>
+                <Tabs value={toWhTab} onValueChange={(v) => setToWhTab(v as any)} className="w-full">
+                  <TabsList className="w-full h-8">
+                    <TabsTrigger value="internal" className="text-xs flex-1">Ներքին</TabsTrigger>
+                    <TabsTrigger value="partners" className="text-xs flex-1">Գործընկեր</TabsTrigger>
+                    <TabsTrigger value="suppliers" className="text-xs flex-1">Մատակարար</TabsTrigger>
+                  </TabsList>
+                </Tabs>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -1224,7 +1309,13 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                         <CommandEmpty>Պահեստ չի գտնվել</CommandEmpty>
                         <CommandGroup>
                           {warehouses
-                            .filter(w => w.id !== fromWarehouse && ["main", "secondary", "temporary", "storage", "supplier"].includes(w.type))
+                            .filter(w => {
+                              if (w.id === fromWarehouse) return false
+                              if (toWhTab === "internal") return !["supplier", "partner"].includes(w.type)
+                              if (toWhTab === "partners") return w.type === "partner"
+                              if (toWhTab === "suppliers") return w.type === "supplier"
+                              return true
+                            })
                             .map((warehouse) => (
                               <CommandItem
                                 key={warehouse.id}
