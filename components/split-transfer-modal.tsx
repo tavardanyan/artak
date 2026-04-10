@@ -221,10 +221,6 @@ export function SplitTransferModal({
           qty: item.leftQty,
           unit_price: item.unit_price,
           unit_vat: item.unit_vat,
-          unit_amount: item.unit_price + item.unit_vat,
-          total_price: item.unit_price * item.leftQty,
-          total_vat: item.unit_vat * item.leftQty,
-          total: (item.unit_price + item.unit_vat) * item.leftQty,
         }))
 
         const { error: leftItemsError } = await supabase
@@ -255,10 +251,6 @@ export function SplitTransferModal({
         qty: item.rightQty,
         unit_price: item.unit_price,
         unit_vat: item.unit_vat,
-        unit_amount: item.unit_price + item.unit_vat,
-        total_price: item.unit_price * item.rightQty,
-        total_vat: item.unit_vat * item.rightQty,
-        total: (item.unit_price + item.unit_vat) * item.rightQty,
       }))
 
       const { error: rightItemsError } = await supabase

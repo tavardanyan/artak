@@ -20,7 +20,9 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, Package, FileText, Calendar } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Loader2, Package, FileText, Calendar, Scissors } from "lucide-react"
+import { SplitTransferModal } from "@/components/split-transfer-modal"
 
 interface TransferItem {
   id: number
@@ -61,6 +63,7 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
   const [loading, setLoading] = useState(true)
   const [transfer, setTransfer] = useState<Transfer | null>(null)
   const [items, setItems] = useState<TransferItem[]>([])
+  const [isSplitOpen, setIsSplitOpen] = useState(false)
 
   const { toast } = useToast()
   const supabase = createClient()
@@ -148,6 +151,8 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
     return <Badge variant="outline">Սպասման մեջ</Badge>
   }
 
+  const canSplit = (t: Transfer) => !t.acepted_at && !t.rejected_at
+
   const calculateTotal = (item: TransferItem) => {
     return (item.qty * item.unit_price) + (item.qty * item.unit_vat)
   }
@@ -211,6 +216,20 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
                 </div>
               </CardContent>
             </Card>
+
+            {/* Action Buttons */}
+            {transfer && canSplit(transfer) && (
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsSplitOpen(true)}
+                >
+                  <Scissors className="h-4 w-4 mr-2" />
+                  Բաժանել
+                </Button>
+              </div>
+            )}
 
             {/* Invoice Info */}
             {transfer.invoice_id && transfer.invoice && (
@@ -307,6 +326,31 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
           </div>
         )}
       </SheetContent>
+
+      {/* Split Transfer Modal */}
+      {transfer && (
+        <SplitTransferModal
+          open={isSplitOpen}
+          onOpenChange={setIsSplitOpen}
+          transferId={transfer.id}
+          transferItems={items.map(i => ({
+            ...i,
+            transfer_id: transfer.id,
+            unit_amount: i.unit_price + i.unit_vat,
+            total_price: i.unit_price * i.qty,
+            total_vat: i.unit_vat * i.qty,
+            total: (i.unit_price + i.unit_vat) * i.qty,
+            item: i.item ? { name: i.item.name, code: "" } : undefined,
+          }))}
+          currentFrom={transfer.from}
+          currentTo={transfer.to}
+          invoiceId={transfer.invoice_id}
+          onSplitComplete={() => {
+            setIsSplitOpen(false)
+            onOpenChange(false)
+          }}
+        />
+      )}
     </Sheet>
   )
 }
