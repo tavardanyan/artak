@@ -6,11 +6,19 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Phone, Mail, MapPin, Plus, Loader2 } from "lucide-react"
+import { Phone, Mail, MapPin, Plus, Loader2, LayoutGrid, TableIcon } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { CreatePersonDrawer } from "@/components/create-person-drawer"
 import { EditPersonDrawer } from "@/components/edit-person-drawer"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 
 interface Person {
   id: number
@@ -91,6 +99,7 @@ export default function StaffPage() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null)
   const [positionFilter, setPositionFilter] = useState<string>("all")
+  const [viewMode, setViewMode] = useState<"cards" | "table">("cards")
   const { toast } = useToast()
   const supabase = createClient()
 
@@ -135,10 +144,30 @@ export default function StaffPage() {
             Կառավարեք ձեր աշխատակազմի անդամներին
           </p>
         </div>
-        <Button onClick={() => setIsDrawerOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Ավելացնել աշխատակից
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center border rounded-md">
+            <Button
+              variant={viewMode === "cards" ? "default" : "ghost"}
+              size="icon"
+              className="h-9 w-9 rounded-r-none"
+              onClick={() => setViewMode("cards")}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === "table" ? "default" : "ghost"}
+              size="icon"
+              className="h-9 w-9 rounded-l-none"
+              onClick={() => setViewMode("table")}
+            >
+              <TableIcon className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button onClick={() => setIsDrawerOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Ավելացնել աշխատակից
+          </Button>
+        </div>
       </div>
 
       {/* Position Filter Tabs */}
@@ -168,20 +197,55 @@ export default function StaffPage() {
             Ավելացնել առաջին աշխատակիցը
           </Button>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {filteredStaff.map((person) => (
-            <StaffCard
-              key={person.id}
-              staff={person}
-              onClick={() => {
-                setSelectedPerson(person)
-                setIsEditDrawerOpen(true)
-              }}
-            />
-          ))}
-        </div>
-      )}
+      ) : viewMode === "cards" ? (
+          <div className="space-y-4">
+            {filteredStaff.map((person) => (
+              <StaffCard
+                key={person.id}
+                staff={person}
+                onClick={() => {
+                  setSelectedPerson(person)
+                  setIsEditDrawerOpen(true)
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="border rounded-lg">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Անուն</TableHead>
+                  <TableHead>Պաշտոն</TableHead>
+                  <TableHead>Հեռախոս</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Հասցե</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredStaff.map((person) => {
+                  const fullName = `${person.first_name} ${person.last_lame || ""}`.trim()
+                  return (
+                    <TableRow
+                      key={person.id}
+                      className="cursor-pointer hover:bg-accent"
+                      onClick={() => {
+                        setSelectedPerson(person)
+                        setIsEditDrawerOpen(true)
+                      }}
+                    >
+                      <TableCell className="font-medium">{fullName}</TableCell>
+                      <TableCell>{person.position || "-"}</TableCell>
+                      <TableCell>{person.phone || "-"}</TableCell>
+                      <TableCell>{person.email || "-"}</TableCell>
+                      <TableCell>{person.address || "-"}</TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
 
       <CreatePersonDrawer
         open={isDrawerOpen}

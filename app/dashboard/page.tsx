@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Loader2, Check, Eye } from "lucide-react"
 import { stringSimilarity } from "@/lib/levenshtein"
 import { InvoiceDetailDrawer } from "@/components/invoice-detail-drawer"
+import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
 
 interface Item {
   id: number
@@ -50,6 +51,17 @@ interface Transfer {
   invoice?: {
     destination_address: string | null
   } | null
+}
+
+interface DraftTransfer {
+  id: number
+  created_at: string
+  delivered_at: string | null
+  from: number
+  to: number
+  invoice_id: string | null
+  from_warehouse?: { name: string }
+  to_warehouse?: { name: string }
 }
 
 interface Warehouse {
@@ -99,6 +111,9 @@ export default function DashboardPage() {
   const invoicesPerPage = 10
   const [partnerTotals, setPartnerTotals] = useState({ transfers: 0, payments: 0, balance: 0 })
   const [internalAccountsBalance, setInternalAccountsBalance] = useState(0)
+  const [draftTransfers, setDraftTransfers] = useState<DraftTransfer[]>([])
+  const [selectedDraftTransferId, setSelectedDraftTransferId] = useState<number | null>(null)
+  const [isDraftDrawerOpen, setIsDraftDrawerOpen] = useState(false)
 
   const { toast } = useToast()
   const supabase = createClient()
@@ -113,6 +128,7 @@ export default function DashboardPage() {
     fetchInvoices()
     fetchPartnerTotals()
     fetchInternalAccountsBalance()
+    fetchDraftTransfers()
   }, [currentPage, transfersPage, invoicesPage])
 
   const fetchMatchLimit = async () => {
@@ -254,6 +270,33 @@ export default function DashboardPage() {
         description: "Չհաջողվեց բեռնել փոխանցումները",
         variant: "destructive",
       })
+    }
+  }
+
+  const fetchDraftTransfers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("transfer")
+        .select(`
+          id,
+          created_at,
+          delivered_at,
+          from,
+          to,
+          invoice_id,
+          from_warehouse:warehouse!transfer_from_fkey(name),
+          to_warehouse:warehouse!transfer_to_fkey(name)
+        `)
+        .is("delivered_at", null)
+        .is("acepted_at", null)
+        .is("rejected_at", null)
+        .order("created_at", { ascending: true })
+        .limit(20)
+
+      if (error) throw error
+      setDraftTransfers((data || []) as unknown as DraftTransfer[])
+    } catch (error) {
+      console.error("Error fetching draft transfers:", error)
     }
   }
 
@@ -926,7 +969,7 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Right Column: Invoices */}
+        {/* Right Column: Invoices & Pending Transfers */}
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
@@ -1027,8 +1070,66 @@ export default function DashboardPage() {
               )}
             </CardContent>
           </Card>
+          {/* Pending Transfers */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">
+                Սևագիր տեղափոխումներ ({draftTransfers.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {draftTransfers.length === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  Սևագիր տեղափոխումներ չկան
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs">
+                      <TableHead className="w-[10%] py-2">ID</TableHead>
+                      <TableHead className="w-[30%] py-2">Սկսած</TableHead>
+                      <TableHead className="w-[30%] py-2">Դեպի</TableHead>
+                      <TableHead className="w-[30%] py-2">Ստեղծված</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {draftTransfers.map((transfer) => (
+                      <TableRow
+                        key={transfer.id}
+                        className="text-xs cursor-pointer hover:bg-accent"
+                        onClick={() => {
+                          setSelectedDraftTransferId(transfer.id)
+                          setIsDraftDrawerOpen(true)
+                        }}
+                      >
+                        <TableCell className="py-2 font-medium">#{transfer.id}</TableCell>
+                        <TableCell className="py-2">
+                          {transfer.from_warehouse?.name || `#${transfer.from}`}
+                        </TableCell>
+                        <TableCell className="py-2">
+                          {transfer.to_warehouse?.name || `#${transfer.to}`}
+                        </TableCell>
+                        <TableCell className="py-2">
+                          {formatDate(transfer.created_at)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
+
+      {/* Draft Transfer Detail Drawer */}
+      {selectedDraftTransferId && (
+        <TransferDetailDrawer
+          open={isDraftDrawerOpen}
+          onOpenChange={setIsDraftDrawerOpen}
+          transferId={selectedDraftTransferId}
+        />
+      )}
 
       {/* Invoice Details Drawer */}
       {selectedInvoiceId && (

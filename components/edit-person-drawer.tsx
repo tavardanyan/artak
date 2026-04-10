@@ -30,7 +30,8 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowUpRight, ArrowDownLeft } from "lucide-react"
+import { ArrowUpRight, ArrowDownLeft, Plus, FileText, Image, Trash2, Loader2, Eye } from "lucide-react"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 
 interface Partner {
   id: number
@@ -82,6 +83,16 @@ interface Transaction {
     name: string
     currency: string
   }
+}
+
+interface Document {
+  id: string
+  type: string | null
+  file_path: string | null
+  file_name: string | null
+  mime_type: string | null
+  note: string | null
+  created_at: string
 }
 
 interface EditPersonDrawerProps {
@@ -148,6 +159,12 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [partners, setPartners] = useState<Partner[]>([])
   const [loadingRelated, setLoadingRelated] = useState(false)
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [loadingDocs, setLoadingDocs] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewMime, setPreviewMime] = useState<string | null>(null)
 
   const supabase = createClient()
   const { toast } = useToast()
@@ -191,6 +208,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
   useEffect(() => {
     if (open && person.id) {
       fetchRelatedData()
+      fetchDocuments()
     }
   }, [open, person.id])
 
@@ -241,6 +259,96 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
     }
 
     setLoadingRelated(false)
+  }
+
+  const fetchDocuments = async () => {
+    setLoadingDocs(true)
+    try {
+      const { data, error } = await supabase
+        .from("files")
+        .select("id, type, file_path, file_name, mime_type, note, created_at")
+        .eq("person_id", person.id)
+        .order("created_at", { ascending: false })
+
+      if (error) throw error
+      setDocuments(data || [])
+    } catch (error) {
+      console.error("Error fetching documents:", error)
+    } finally {
+      setLoadingDocs(false)
+    }
+  }
+
+  const handleUploadDocument = async (file: File, docType: string) => {
+    setUploading(true)
+    try {
+      const fileId = crypto.randomUUID()
+      const ext = file.name.split(".").pop()
+      const filePath = `documents/person/${person.id}/${fileId}.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from("artak")
+        .upload(filePath, file)
+
+      if (uploadError) throw uploadError
+
+      const { error: dbError } = await supabase
+        .from("files")
+        .insert({
+          id: fileId,
+          type: docType,
+          file_path: filePath,
+          file_name: file.name,
+          mime_type: file.type,
+          person_id: person.id,
+        })
+
+      if (dbError) throw dbError
+
+      toast({
+        title: "Հաջողություն",
+        description: "Փաստաթուղթը հաջողությամբ վերբեռնվեց",
+      })
+
+      fetchDocuments()
+    } catch (error) {
+      console.error("Error uploading document:", error)
+      toast({
+        title: "Սխալ",
+        description: "Չհաջողվեց վերբեռնել փաստաթուղթը",
+        variant: "destructive",
+      })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleDeleteDocument = async (doc: Document) => {
+    try {
+      if (doc.file_path) {
+        await supabase.storage.from("artak").remove([doc.file_path])
+      }
+      const { error } = await supabase.from("files").delete().eq("id", doc.id)
+      if (error) throw error
+      fetchDocuments()
+    } catch (error) {
+      console.error("Error deleting document:", error)
+    }
+  }
+
+  const getDocumentUrl = (doc: Document) => {
+    if (!doc.file_path) return null
+    const { data } = supabase.storage.from("artak").getPublicUrl(doc.file_path)
+    return data.publicUrl
+  }
+
+  const getDocTypeLabel = (type: string | null) => {
+    const types: Record<string, string> = {
+      passport: "Անձնագիր",
+      license: "Վարորդական իրավունք",
+      other: "Այլ",
+    }
+    return types[type || "other"] || type || "Այլ"
   }
 
   const handleSubmit = async () => {
@@ -302,7 +410,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-[50vw] overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-[90vw] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>
             {person.type === "staff" ? "Խմբագրել աշխատակցի տվյալները" : "Խմբագրել կոնտակտի տվյալները"}
@@ -312,7 +420,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
           </SheetDescription>
         </SheetHeader>
 
-        <div className="grid grid-cols-2 gap-6 py-6">
+        <div className="grid grid-cols-3 gap-6 py-6">
           {/* Left Column - Person Info */}
           <div className="space-y-4">
             <h3 className="font-semibold">Անձնական տվյալներ</h3>
@@ -540,6 +648,101 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
               </div>
             )}
           </div>
+
+          {/* Third Column - Documents */}
+          <div className="space-y-4">
+            <h3 className="font-semibold">Փաստաթղթեր</h3>
+            <div className="space-y-2">
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                className="hidden"
+                id="doc-upload"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    const docType = (document.getElementById("doc-type-select") as HTMLSelectElement)?.value || "other"
+                    handleUploadDocument(file, docType)
+                    e.target.value = ""
+                  }
+                }}
+              />
+              <select
+                id="doc-type-select"
+                className="h-9 w-full text-sm border rounded-md px-3 bg-background"
+                defaultValue="passport"
+              >
+                <option value="passport">Անձնագիր</option>
+                <option value="license">Վարորդական իրավունք</option>
+                <option value="other">Այլ</option>
+              </select>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => document.getElementById("doc-upload")?.click()}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Plus className="h-4 w-4 mr-2" />
+                )}
+                Ավելացնել
+              </Button>
+            </div>
+
+            {loadingDocs ? (
+              <p className="text-sm text-muted-foreground">Բեռնում...</p>
+            ) : documents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Փաստաթղթեր չկան</p>
+            ) : (
+              <div className="space-y-2">
+                {documents.map((doc) => {
+                  const isImage = doc.mime_type?.startsWith("image/")
+                  const url = getDocumentUrl(doc)
+                  return (
+                    <div
+                      key={doc.id}
+                      className="flex items-center gap-3 p-3 border rounded-md hover:bg-accent/50 cursor-pointer group"
+                      onClick={() => {
+                        if (url) {
+                          setPreviewUrl(url)
+                          setPreviewMime(doc.mime_type)
+                          setPreviewOpen(true)
+                        }
+                      }}
+                    >
+                      <div className="h-10 w-10 rounded bg-muted flex items-center justify-center shrink-0">
+                        {isImage && url ? (
+                          <img src={url} alt="" className="h-10 w-10 rounded object-cover" />
+                        ) : (
+                          <FileText className="h-5 w-5 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{doc.file_name || "Փաստաթուղթ"}</p>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">{getDocTypeLabel(doc.type)}</Badge>
+                          <span className="text-xs text-muted-foreground">{formatDate(doc.created_at)}</span>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 opacity-0 group-hover:opacity-100"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteDocument(doc)
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <SheetFooter>
@@ -555,6 +758,24 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
           </Button>
         </SheetFooter>
       </SheetContent>
+
+      {/* Document Preview Dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-[80vw] max-h-[90vh] p-2">
+          {previewUrl && previewMime?.startsWith("image/") ? (
+            <img src={previewUrl} alt="" className="w-full h-auto max-h-[85vh] object-contain" />
+          ) : previewUrl && previewMime === "application/pdf" ? (
+            <iframe src={previewUrl} className="w-full h-[85vh]" />
+          ) : previewUrl ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-4">
+              <FileText className="h-16 w-16 text-muted-foreground" />
+              <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                Բացել փաստաթուղթը
+              </a>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Sheet>
   )
 }

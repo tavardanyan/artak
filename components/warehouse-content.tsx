@@ -33,8 +33,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowRight, Package, TruckIcon, Plus, Trash2, Search } from "lucide-react"
+import { ArrowRight, ArrowLeft, Package, TruckIcon, Plus, Trash2, Search, ChevronsUpDown, Check, Scissors } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { SplitTransferModal } from "@/components/split-transfer-modal"
 
 interface Transfer {
   id: number
@@ -144,6 +148,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [isTransferDrawerOpen, setIsTransferDrawerOpen] = useState(false)
   const [isItemDrawerOpen, setIsItemDrawerOpen] = useState(false)
   const [isCreateTransferDrawerOpen, setIsCreateTransferDrawerOpen] = useState(false)
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
   const [loading, setLoading] = useState(true)
 
   // Create transfer state
@@ -707,9 +712,15 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
   const handleAccept = async (transferId: number) => {
     try {
+      const now = new Date().toISOString()
+      const transfer = transfers.find(t => t.id === transferId)
+      const updateData: Record<string, string> = { acepted_at: now }
+      if (!transfer?.delivered_at) {
+        updateData.delivered_at = now
+      }
       const { error } = await supabase
         .from("transfer")
-        .update({ acepted_at: new Date().toISOString() })
+        .update(updateData)
         .eq("id", transferId)
 
       if (error) throw error
@@ -825,9 +836,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   <TableHeader>
                     <TableRow>
                       <TableHead>ID</TableHead>
-                      <TableHead>Սկսած</TableHead>
-                      <TableHead>Ուղղություն</TableHead>
-                      <TableHead>Դեպի</TableHead>
+                      <TableHead>Պահեստ</TableHead>
                       <TableHead>Ստեղծվել է</TableHead>
                       <TableHead>Վիճակ</TableHead>
                     </TableRow>
@@ -840,11 +849,21 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                         onClick={() => handleTransferClick(transfer)}
                       >
                         <TableCell className="font-medium">#{transfer.id}</TableCell>
-                        <TableCell>{transfer.from_warehouse?.name || `#${transfer.from}`}</TableCell>
                         <TableCell>
-                          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                          <div className="flex items-center gap-2">
+                            {transfer.from === warehouseId ? (
+                              <>
+                                <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                                <span>{transfer.to_warehouse?.name || `#${transfer.to}`}</span>
+                              </>
+                            ) : (
+                              <>
+                                <ArrowLeft className="h-4 w-4 text-muted-foreground" />
+                                <span>{transfer.from_warehouse?.name || `#${transfer.from}`}</span>
+                              </>
+                            )}
+                          </div>
                         </TableCell>
-                        <TableCell>{transfer.to_warehouse?.name || `#${transfer.to}`}</TableCell>
                         <TableCell>{formatDate(transfer.created_at)}</TableCell>
                         <TableCell>{getTransferStatus(transfer)}</TableCell>
                       </TableRow>
@@ -921,7 +940,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
       {/* Transfer Items Drawer */}
       <Sheet open={isTransferDrawerOpen} onOpenChange={setIsTransferDrawerOpen}>
-        <SheetContent className="w-full sm:max-w-[50vw] overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-[70vw] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Տեղափոխման մանրամասներ #{selectedTransfer?.id}</SheetTitle>
             <SheetDescription>
@@ -1013,21 +1032,28 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     Նշանակել որպես ընթացիկ
                   </Button>
                 )}
-                {selectedTransfer?.delivered_at && (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => selectedTransfer && handleAccept(selectedTransfer.id)}
-                  >
-                    Ընդունել
-                  </Button>
-                )}
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => selectedTransfer && handleAccept(selectedTransfer.id)}
+                >
+                  Ընդունել
+                </Button>
                 <Button
                   variant="destructive"
                   size="sm"
                   onClick={() => selectedTransfer && handleReject(selectedTransfer.id)}
                 >
                   Մերժել
+                </Button>
+                <div className="flex-1" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsSplitModalOpen(true)}
+                >
+                  <Scissors className="h-4 w-4 mr-2" />
+                  Բաժանել
                 </Button>
               </div>
             )}
@@ -1074,7 +1100,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
       {/* Item Transfers Drawer */}
       <Sheet open={isItemDrawerOpen} onOpenChange={setIsItemDrawerOpen}>
-        <SheetContent className="w-full sm:max-w-[50vw] overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-[70vw] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>{selectedItem?.item?.name || "Ապրանք"}</SheetTitle>
             <SheetDescription>
@@ -1131,7 +1157,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
       {/* Create Transfer Drawer */}
       <Sheet open={isCreateTransferDrawerOpen} onOpenChange={setIsCreateTransferDrawerOpen}>
-        <SheetContent className="w-full sm:max-w-[50vw] overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-[70vw] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Ստեղծել նոր տեղափոխում</SheetTitle>
             <SheetDescription>
@@ -1144,42 +1170,76 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Սկսած պահեստից</Label>
-                <Select
-                  value={fromWarehouse.toString()}
-                  onValueChange={(value) => setFromWarehouse(Number(value))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {warehouses.map((warehouse) => (
-                      <SelectItem key={warehouse.id} value={warehouse.id.toString()}>
-                        {warehouse.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="w-full justify-between font-normal"
+                    >
+                      {warehouses.find(w => w.id === fromWarehouse)?.name || "Ընտրեք պահեստը"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                    <Command>
+                      <CommandInput placeholder="Որոնել պահեստ..." />
+                      <CommandList>
+                        <CommandEmpty>Պահեստ չի գտնվել</CommandEmpty>
+                        <CommandGroup>
+                          {warehouses.map((warehouse) => (
+                            <CommandItem
+                              key={warehouse.id}
+                              value={warehouse.name}
+                              onSelect={() => setFromWarehouse(warehouse.id)}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", fromWarehouse === warehouse.id ? "opacity-100" : "opacity-0")} />
+                              {warehouse.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="space-y-2">
                 <Label>Դեպի պահեստ</Label>
-                <Select
-                  value={toWarehouse?.toString() || ""}
-                  onValueChange={(value) => setToWarehouse(Number(value))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Ընտրեք պահեստը" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {warehouses
-                      .filter(w => w.id !== fromWarehouse)
-                      .map((warehouse) => (
-                        <SelectItem key={warehouse.id} value={warehouse.id.toString()}>
-                          {warehouse.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="w-full justify-between font-normal"
+                    >
+                      {toWarehouse ? warehouses.find(w => w.id === toWarehouse)?.name : "Ընտրեք պահեստը"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                    <Command>
+                      <CommandInput placeholder="Որոնել պահեստ..." />
+                      <CommandList>
+                        <CommandEmpty>Պահեստ չի գտնվել</CommandEmpty>
+                        <CommandGroup>
+                          {warehouses
+                            .filter(w => w.id !== fromWarehouse && ["main", "secondary", "temporary", "storage", "supplier"].includes(w.type))
+                            .map((warehouse) => (
+                              <CommandItem
+                                key={warehouse.id}
+                                value={warehouse.name}
+                                onSelect={() => setToWarehouse(warehouse.id)}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", toWarehouse === warehouse.id ? "opacity-100" : "opacity-0")} />
+                                {warehouse.name}
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
@@ -1238,7 +1298,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                           <SelectValue placeholder="Ընտրեք հաշիվը" />
                         </SelectTrigger>
                         <SelectContent>
-                          {accounts.map((account) => (
+                          {accounts
+                            .filter(account => !account.internal)
+                            .map((account) => (
                             <SelectItem key={account.id} value={account.id.toString()}>
                               {account.name} ({account.currency.toUpperCase()})
                             </SelectItem>
@@ -1277,7 +1339,8 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[30%]">Անվանում</TableHead>
-                      <TableHead className="w-[15%]">Միավոր</TableHead>
+                      <TableHead className="w-[60px]"></TableHead>
+                      <TableHead className="w-[12%]">Միավոր</TableHead>
                       <TableHead className="w-[10%]">Քնկ.</TableHead>
                       <TableHead className="w-[15%]">Գին</TableHead>
                       <TableHead className="w-[15%]">ԱԱՀ</TableHead>
@@ -1288,32 +1351,32 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     {newTransferItems.map((item, index) => (
                       <TableRow key={index}>
                         <TableCell>
-                          <div className="relative">
-                            <Input
-                              placeholder="Ապրանքի անվանումը"
-                              value={item.itemName}
-                              onChange={(e) => updateItemRow(index, "itemName", e.target.value)}
-                              list={`items-list-${index}`}
-                            />
-                            <datalist id={`items-list-${index}`}>
-                              {items
-                                .filter(i => i.name.toLowerCase().includes(item.itemName.toLowerCase()))
-                                .slice(0, 10)
-                                .map(i => (
-                                  <option key={i.id} value={i.name} />
-                                ))}
-                            </datalist>
-                            {item.itemId && (
-                              <Badge variant="outline" className="absolute -bottom-6 left-0 text-xs">
-                                Առկա է
-                              </Badge>
-                            )}
-                            {item.itemName && !item.itemId && (
-                              <Badge variant="secondary" className="absolute -bottom-6 left-0 text-xs">
-                                Նոր
-                              </Badge>
-                            )}
-                          </div>
+                          <Input
+                            placeholder="Ապրանքի անվանումը"
+                            value={item.itemName}
+                            onChange={(e) => updateItemRow(index, "itemName", e.target.value)}
+                            list={`items-list-${index}`}
+                          />
+                          <datalist id={`items-list-${index}`}>
+                            {items
+                              .filter(i => i.name.toLowerCase().includes(item.itemName.toLowerCase()))
+                              .slice(0, 10)
+                              .map(i => (
+                                <option key={i.id} value={i.name} />
+                              ))}
+                          </datalist>
+                        </TableCell>
+                        <TableCell>
+                          {item.itemId && (
+                            <Badge variant="outline" className="text-xs">
+                              Առկա է
+                            </Badge>
+                          )}
+                          {item.itemName && !item.itemId && (
+                            <Badge variant="secondary" className="text-xs">
+                              Նոր
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Input
@@ -1393,6 +1456,23 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
           </SheetFooter>
         </SheetContent>
       </Sheet>
+      {/* Split Transfer Modal */}
+      {selectedTransfer && (
+        <SplitTransferModal
+          open={isSplitModalOpen}
+          onOpenChange={setIsSplitModalOpen}
+          transferId={selectedTransfer.id}
+          transferItems={transferItems}
+          currentFrom={selectedTransfer.from}
+          currentTo={selectedTransfer.to}
+          invoiceId={selectedTransfer.invoice_id}
+          onSplitComplete={() => {
+            setIsTransferDrawerOpen(false)
+            fetchTransfers()
+            fetchWarehouseItems()
+          }}
+        />
+      )}
     </>
   )
 }
