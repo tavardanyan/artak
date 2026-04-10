@@ -293,7 +293,7 @@ export function SplitTransferModal({
   ]
 
   const filteredWarehouses = warehouses.filter(w =>
-    ["main", "secondary", "temporary", "storage", "supplier"].includes(w.type)
+    ["main", "secondary", "temporary", "storage"].includes(w.type)
   )
 
   return (
@@ -369,7 +369,7 @@ export function SplitTransferModal({
               </TableHeader>
               <TableBody>
                 {splitItems.map((item, index) => (
-                  <TableRow key={item.item_id} className={item.leftQty === 0 ? "opacity-40" : ""}>
+                  <TableRow key={item.item_id} className={cn("h-[49px]", item.leftQty === 0 && "opacity-40")}>
                     <TableCell className="text-sm">{item.name}</TableCell>
                     <TableCell className="text-right text-sm font-medium">{item.leftQty}</TableCell>
                     <TableCell className="text-right text-sm">
@@ -389,7 +389,7 @@ export function SplitTransferModal({
           {/* Middle - Move Buttons */}
           <div className="flex flex-col items-center justify-center gap-1 pt-[200px]">
             {splitItems.map((item, index) => (
-              <div key={item.item_id} className="h-[41px] flex items-center">
+              <div key={item.item_id} className="h-[49px] flex items-center">
                 {item.rightQty === 0 ? (
                   <Button
                     variant="ghost"
@@ -476,21 +476,18 @@ export function SplitTransferModal({
               </TableHeader>
               <TableBody>
                 {splitItems.map((item, index) => (
-                  <TableRow key={item.item_id} className={item.rightQty === 0 ? "opacity-40" : ""}>
+                  <TableRow key={item.item_id} className={cn("h-[49px]", item.rightQty === 0 && "opacity-40")}>
                     <TableCell className="text-sm">{item.name}</TableCell>
                     <TableCell className="text-right">
-                      {item.rightQty > 0 ? (
-                        <Input
-                          type="number"
-                          className="w-[70px] h-7 text-sm text-right ml-auto"
-                          value={item.rightQty}
-                          min={0}
-                          max={item.originalQty}
-                          onChange={(e) => updateRightQty(index, Number(e.target.value))}
-                        />
-                      ) : (
-                        <span className="text-sm">0</span>
-                      )}
+                      <Input
+                        type="number"
+                        className="w-[70px] h-7 text-sm text-right ml-auto"
+                        value={item.rightQty}
+                        min={0}
+                        max={item.originalQty}
+                        onChange={(e) => updateRightQty(index, Number(e.target.value))}
+                        disabled={item.rightQty === 0}
+                      />
                     </TableCell>
                     <TableCell className="text-right text-sm">
                       {((item.unit_price + item.unit_vat) * item.rightQty).toLocaleString()} ֏

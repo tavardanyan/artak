@@ -23,12 +23,17 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowDownLeft, ArrowUpRight } from "lucide-react"
+import { ArrowDownLeft, ArrowUpRight, ChevronsUpDown, Check } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 
 interface Account {
   id: number
   name: string
   currency: string
+  internal: boolean
 }
 
 interface Contract {
@@ -78,6 +83,8 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [showContractSelect, setShowContractSelect] = useState(false)
+  const [fromAccountTab, setFromAccountTab] = useState<"all" | "internal" | "external">("all")
+  const [toAccountTab, setToAccountTab] = useState<"all" | "internal" | "external">("all")
   const [fromAccountBalance, setFromAccountBalance] = useState<number | null>(null)
   const [toAccountBalance, setToAccountBalance] = useState<number | null>(null)
   const [contractTransactionsTotal, setContractTransactionsTotal] = useState<number>(0)
@@ -98,7 +105,7 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       setLoading(true)
       const { data, error } = await supabase
         .from("account")
-        .select("id, name, currency")
+        .select("id, name, currency, internal")
         .order("name")
 
       if (error) throw error
@@ -454,47 +461,85 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
             {/* From Account */}
             <div className="space-y-2">
               <Label>Ից</Label>
-              <Select value={fromAccount} onValueChange={setFromAccount}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Ընտրեք հաշիվը" />
-                </SelectTrigger>
-                <SelectContent>
-                  {loading ? (
-                    <SelectItem value="loading" disabled>Բեռնում...</SelectItem>
-                  ) : accounts.length === 0 ? (
-                    <SelectItem value="empty" disabled>Հաշիվներ չկան</SelectItem>
-                  ) : (
-                    accounts.map((account) => (
-                      <SelectItem key={account.id} value={account.id.toString()}>
-                        {account.name} ({account.currency.toUpperCase()})
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+              <Tabs value={fromAccountTab} onValueChange={(v) => setFromAccountTab(v as "all" | "internal" | "external")} className="w-full">
+                <TabsList className="w-full h-8">
+                  <TabsTrigger value="all" className="text-xs flex-1">Բոլորը</TabsTrigger>
+                  <TabsTrigger value="internal" className="text-xs flex-1">Ներքին</TabsTrigger>
+                  <TabsTrigger value="external" className="text-xs flex-1">Արտաքին</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                    {fromAccount ? accounts.find(a => a.id.toString() === fromAccount)?.name || "Ընտրեք հաշիվը" : "Ընտրեք հաշիվը"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                  <Command>
+                    <CommandInput placeholder="Որոնել հաշիվ..." />
+                    <CommandList>
+                      <CommandEmpty>Հաշիվ չի գտնվել</CommandEmpty>
+                      <CommandGroup>
+                        {accounts
+                          .filter(a => fromAccountTab === "all" ? true : fromAccountTab === "internal" ? a.internal : !a.internal)
+                          .map((account) => (
+                          <CommandItem
+                            key={account.id}
+                            value={account.name}
+                            onSelect={() => setFromAccount(account.id.toString())}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", fromAccount === account.id.toString() ? "opacity-100" : "opacity-0")} />
+                            {account.name} ({account.currency.toUpperCase()})
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
 
             {/* To Account */}
             <div className="space-y-2">
               <Label>Դեպի</Label>
-              <Select value={toAccount} onValueChange={setToAccount}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Ընտրեք հաշիվը" />
-                </SelectTrigger>
-                <SelectContent>
-                  {loading ? (
-                    <SelectItem value="loading" disabled>Բեռնում...</SelectItem>
-                  ) : accounts.length === 0 ? (
-                    <SelectItem value="empty" disabled>Հաշիվներ չկան</SelectItem>
-                  ) : (
-                    accounts.map((account) => (
-                      <SelectItem key={account.id} value={account.id.toString()}>
-                        {account.name} ({account.currency.toUpperCase()})
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+              <Tabs value={toAccountTab} onValueChange={(v) => setToAccountTab(v as "all" | "internal" | "external")} className="w-full">
+                <TabsList className="w-full h-8">
+                  <TabsTrigger value="all" className="text-xs flex-1">Բոլորը</TabsTrigger>
+                  <TabsTrigger value="internal" className="text-xs flex-1">Ներքին</TabsTrigger>
+                  <TabsTrigger value="external" className="text-xs flex-1">Արտաքին</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                    {toAccount ? accounts.find(a => a.id.toString() === toAccount)?.name || "Ընտրեք հաշիվը" : "Ընտրեք հաշիվը"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                  <Command>
+                    <CommandInput placeholder="Որոնել հաշիվ..." />
+                    <CommandList>
+                      <CommandEmpty>Հաշիվ չի գտնվել</CommandEmpty>
+                      <CommandGroup>
+                        {accounts
+                          .filter(a => toAccountTab === "all" ? true : toAccountTab === "internal" ? a.internal : !a.internal)
+                          .map((account) => (
+                          <CommandItem
+                            key={account.id}
+                            value={account.name}
+                            onSelect={() => setToAccount(account.id.toString())}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", toAccount === account.id.toString() ? "opacity-100" : "opacity-0")} />
+                            {account.name} ({account.currency.toUpperCase()})
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 

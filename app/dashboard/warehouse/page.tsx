@@ -26,6 +26,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Plus, Warehouse as WarehouseIcon, MapPin, Package, Pencil } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { WarehouseContent } from "@/components/warehouse-content"
 
 interface Warehouse {
@@ -42,6 +43,7 @@ function WarehousePageContent() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [warehouseFilter, setWarehouseFilter] = useState<"main" | "partner" | "supplier">("main")
   const [initialTransferData, setInitialTransferData] = useState<any>(null)
   const { toast } = useToast()
 
@@ -253,13 +255,27 @@ function WarehousePageContent() {
           <h2 className="text-2xl font-bold">Պահեստներ</h2>
         </div>
 
+        {/* Warehouse Filter Tabs */}
+        <Tabs value={warehouseFilter} onValueChange={(v) => setWarehouseFilter(v as "main" | "partner" | "supplier")} className="mb-3">
+          <TabsList className="w-full">
+            <TabsTrigger value="main" className="flex-1">Հիմնական</TabsTrigger>
+            <TabsTrigger value="partner" className="flex-1">Գործընկեր</TabsTrigger>
+            <TabsTrigger value="supplier" className="flex-1">Մատակարար</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         {/* Warehouse List */}
         <div className="space-y-2 overflow-y-auto flex-1">
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <p className="text-muted-foreground">Բեռնում...</p>
             </div>
-          ) : warehouses.length === 0 ? (
+          ) : warehouses.filter(w => {
+            if (warehouseFilter === "main") return w.type !== "partner" && w.type !== "supplier"
+            if (warehouseFilter === "partner") return w.type === "partner"
+            if (warehouseFilter === "supplier") return w.type === "supplier"
+            return true
+          }).length === 0 ? (
             <div className="flex flex-col items-center justify-center h-32 text-center">
               <WarehouseIcon className="h-12 w-12 text-muted-foreground mb-2" />
               <p className="text-muted-foreground">Պահեստներ չկան</p>
@@ -268,7 +284,12 @@ function WarehousePageContent() {
               </p>
             </div>
           ) : (
-            warehouses.map((warehouse) => (
+            warehouses.filter(w => {
+              if (warehouseFilter === "main") return w.type !== "partner" && w.type !== "supplier"
+              if (warehouseFilter === "partner") return w.type === "partner"
+              if (warehouseFilter === "supplier") return w.type === "supplier"
+              return true
+            }).map((warehouse) => (
               <Card
                 key={warehouse.id}
                 className={`cursor-pointer transition-colors hover:bg-accent ${
