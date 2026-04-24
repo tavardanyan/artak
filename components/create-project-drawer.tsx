@@ -37,6 +37,8 @@ interface CreateProjectDrawerProps {
 
 export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreateProjectDrawerProps) {
   const [partners, setPartners] = useState<Partner[]>([])
+  const [parentProjects, setParentProjects] = useState<{ id: number; name: string; code: string }[]>([])
+  const [parentProjectId, setParentProjectId] = useState("none")
   const [name, setName] = useState("")
   const [code, setCode] = useState("")
   const [type, setType] = useState("construction")
@@ -55,8 +57,18 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
   useEffect(() => {
     if (open) {
       fetchPartners()
+      fetchParentProjects()
     }
   }, [open])
+
+  const fetchParentProjects = async () => {
+    const { data } = await supabase
+      .from("project")
+      .select("id, name, code")
+      .is("parent_project", null)
+      .order("name")
+    setParentProjects(data || [])
+  }
 
   const fetchPartners = async () => {
     const { data, error } = await supabase
@@ -100,6 +112,7 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
           type,
           address: address || null,
           partner_id: parseInt(partnerId),
+          parent_project: parentProjectId === "none" ? null : parseInt(parentProjectId),
           start: startDate ? new Date(startDate).toISOString() : null,
           end: endDate ? new Date(endDate).toISOString() : null,
           agreement_date: agreementDate ? new Date(agreementDate).toISOString() : null,
@@ -133,6 +146,7 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
       setEndDate("")
       setAgreementDate("")
       setBudget("")
+      setParentProjectId("none")
 
       onOpenChange(false)
 
@@ -203,6 +217,23 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
                 <SelectItem value="design">Դիզայն</SelectItem>
                 <SelectItem value="consulting">Խորհրդատվություն</SelectItem>
                 <SelectItem value="other">Այլ</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="parent-project">Ծնող նախագիծ</Label>
+            <Select value={parentProjectId} onValueChange={setParentProjectId}>
+              <SelectTrigger id="parent-project">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Չունի (հիմնական նախագիծ)</SelectItem>
+                {parentProjects.map((p) => (
+                  <SelectItem key={p.id} value={p.id.toString()}>
+                    {p.name} ({p.code})
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

@@ -1,0 +1,211 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useToast } from "@/hooks/use-toast"
+import { Loader2, Check } from "lucide-react"
+import { stringSimilarity } from "@/lib/levenshtein"
+
+interface Item {
+  id: number
+  name: string
+  unit: string | null
+  created_at: string
+  parent: number | null
+  seen: boolean | null
+}
+
+interface ParentSuggestion {
+  id: number
+  name: string
+  similarity: number
+}
+
+const ITEMS_PER_PAGE = 20
+
+export default function UncheckedItemsPage() {
+  const [items, setItems] = useState<Item[]>([])
+  const [allParentItems, setAllParentItems] = useState<Item[]>([])
+  const [loading, setLoading] = useState(true)
+  const [processingItems, setProcessingItems] = useState<Set<number>>(new Set())
+  const [selectedParents, setSelectedParents] = useState<Record<number, number | null>>({})
+  const [matchLimit, setMatchLimit] = useState(10)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalItems, setTotalItems] = useState(0)
+
+  const { toast } = useToast()
+  const supabase = createClient()
+
+  useEffect(() => {
+    fetchMatchLimit()
+    fetchAllParentItems()
+  }, [])
+
+  useEffect(() => {
+    fetchItems()
+  }, [currentPage])
+
+  const fetchMatchLimit = async () => {
+    const { data } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "item_matching_limit")
+      .single()
+    if (data?.value) setMatchLimit(Number(data.value))
+  }
+
+  const fetchAllParentItems = async () => {
+    const { data } = await supabase
+      .from("item")
+      .select("id, name, unit, created_at, parent, seen")
+      .is("parent", null)
+    setAllParentItems(data || [])
+  }
+
+  const fetchItems = async () => {
+    setLoading(true)
+    try {
+      const { count } = await supabase
+        .from("item")
+        .select("*", { count: "exact", head: true })
+        .is("parent", null)
+        .or("seen.is.null,seen.eq.false")
+
+      setTotalItems(count || 0)
+
+      const { data, error } = await supabase
+        .from("item")
+        .select("id, name, unit, created_at, parent, seen")
+        .is("parent", null)
+        .or("seen.is.null,seen.eq.false")
+        .order("created_at", { ascending: false })
+        .range((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE - 1)
+
+      if (error) throw error
+      setItems(data || [])
+    } catch (error: any) {
+      console.error("Error:", error)
+      toast({ title: "Սխալ", description: error?.message || "Չհաջողվեց բեռնել ապրանքները", variant: "destructive" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getParentSuggestions = (itemName: string, currentItemId: number): ParentSuggestion[] => {
+    return allParentItems
+      .filter((item) => item.id !== currentItemId)
+      .map((item) => ({ id: item.id, name: item.name, similarity: stringSimilarity(itemName, item.name) }))
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, matchLimit)
+  }
+
+  const handleDone = async (item: Item) => {
+    setProcessingItems((prev) => new Set(prev).add(item.id))
+    try {
+      const parentId = selectedParents[item.id] || null
+      const { error: updateError } = await supabase
+        .from("item")
+        .update({ seen: true, parent: parentId })
+        .eq("id", item.id)
+      if (updateError) throw updateError
+      if (parentId) {
+        await supabase.from("transfer_item").update({ item_id: parentId }).eq("item_id", item.id)
+      }
+      setItems((prev) => prev.filter((i) => i.id !== item.id))
+      setTotalItems((prev) => prev - 1)
+      toast({ title: "Հաջողություն", description: parentId ? "Ապրանքը կապվեց" : "Նշվեց դիտված" })
+    } catch (error: any) {
+      console.error("Error:", error)
+      toast({ title: "Սխալ", description: error?.message, variant: "destructive" })
+    } finally {
+      setProcessingItems((prev) => {
+        const n = new Set(prev); n.delete(item.id); return n
+      })
+    }
+  }
+
+  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("hy-AM", { year: "numeric", month: "short", day: "numeric" })
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE)
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Չստուգված ապրանքներ</h2>
+        <p className="text-sm text-muted-foreground">Ստուգեք և կապեք նոր ապրանքները գոյություն ունեցող ապրանքների հետ</p>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Ընդամենը {totalItems}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-8 text-sm text-muted-foreground">Բոլոր ապրանքները ստուգված են</div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow className="text-xs">
+                    <TableHead className="w-[35%] py-2">Անուն</TableHead>
+                    <TableHead className="w-[10%] py-2">Միավոր</TableHead>
+                    <TableHead className="w-[15%] py-2">Ստեղծման ա/թ</TableHead>
+                    <TableHead className="w-[30%] py-2">Ծնող ապրանք</TableHead>
+                    <TableHead className="w-[10%] py-2"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item) => {
+                    const suggestions = getParentSuggestions(item.name, item.id)
+                    const isProcessing = processingItems.has(item.id)
+                    return (
+                      <TableRow key={item.id} className="text-xs">
+                        <TableCell className="font-medium py-2">{item.name}</TableCell>
+                        <TableCell className="py-2">{item.unit || "-"}</TableCell>
+                        <TableCell className="py-2">{formatDate(item.created_at)}</TableCell>
+                        <TableCell className="py-2">
+                          <Select
+                            value={selectedParents[item.id]?.toString() || "none"}
+                            onValueChange={(value) => setSelectedParents((prev) => ({ ...prev, [item.id]: value === "none" ? null : Number(value) }))}
+                            disabled={isProcessing}
+                          >
+                            <SelectTrigger className="w-full h-8 text-xs"><SelectValue placeholder="Ընտրել ծնող ապրանք" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none" className="text-xs">Ոչ մեկը</SelectItem>
+                              {suggestions.map((s) => (
+                                <SelectItem key={s.id} value={s.id.toString()} className="text-xs">{s.name} ({s.similarity.toFixed(0)}%)</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell className="py-2">
+                          <Button size="sm" onClick={() => handleDone(item)} disabled={isProcessing} className="h-7 text-xs">
+                            {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Check className="h-3 w-3 mr-1" />Պատրաստ</>}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4">
+                  <div className="text-xs text-muted-foreground">Էջ {currentPage} / {totalPages}</div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-7 text-xs">Նախորդ</Button>
+                    <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-7 text-xs">Հաջորդ</Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

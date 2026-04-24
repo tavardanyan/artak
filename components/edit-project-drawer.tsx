@@ -35,6 +35,7 @@ interface Project {
   type: string
   address: string | null
   partner_id: number
+  parent_project: number | null
   start: string | null
   end: string | null
   agreement_date: string | null
@@ -51,6 +52,8 @@ interface EditProjectDrawerProps {
 
 export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: EditProjectDrawerProps) {
   const [partners, setPartners] = useState<Partner[]>([])
+  const [parentProjects, setParentProjects] = useState<{ id: number; name: string; code: string }[]>([])
+  const [parentProjectId, setParentProjectId] = useState(project.parent_project?.toString() || "none")
   const [name, setName] = useState(project.name)
   const [code, setCode] = useState(project.code)
   const [type, setType] = useState(project.type)
@@ -86,13 +89,24 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
     setAgreementDate(project.agreement_date ? new Date(project.agreement_date).toISOString().split("T")[0] : "")
     setBudget(project.budget ? handleNumberInput(project.budget.toString()) : "")
     setStatus(project.status)
+    setParentProjectId(project.parent_project?.toString() || "none")
   }, [project])
 
   useEffect(() => {
     if (open) {
       fetchPartners()
+      fetchParentProjects()
     }
-  }, [open])
+  }, [open, project.id])
+
+  const fetchParentProjects = async () => {
+    const { data } = await supabase
+      .from("project")
+      .select("id, name, code")
+      .neq("id", project.id)
+      .order("name")
+    setParentProjects(data || [])
+  }
 
   const fetchPartners = async () => {
     const { data, error } = await supabase
@@ -136,6 +150,7 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
           type,
           address: address || null,
           partner_id: parseInt(partnerId),
+          parent_project: parentProjectId === "none" ? null : parseInt(parentProjectId),
           start: startDate ? new Date(startDate).toISOString() : null,
           end: endDate ? new Date(endDate).toISOString() : null,
           agreement_date: agreementDate ? new Date(agreementDate).toISOString() : null,
@@ -238,6 +253,23 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
                 <SelectItem value="active">Ակտիվ</SelectItem>
                 <SelectItem value="completed">Ավարտված</SelectItem>
                 <SelectItem value="cancelled">Չեղարկված</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="parent-project">Ծնող նախագիծ</Label>
+            <Select value={parentProjectId} onValueChange={setParentProjectId}>
+              <SelectTrigger id="parent-project">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Չունի (հիմնական նախագիծ)</SelectItem>
+                {parentProjects.map((p) => (
+                  <SelectItem key={p.id} value={p.id.toString()}>
+                    {p.name} ({p.code})
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

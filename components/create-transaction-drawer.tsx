@@ -64,7 +64,7 @@ interface Project {
 interface CreateTransactionDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSuccess?: () => void
+  onSuccess?: (transactionId?: number) => void
 }
 
 export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: CreateTransactionDrawerProps) {
@@ -258,7 +258,7 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       const person = persons.find(p => p.account_id.toString() === toAccount)
       if (person) {
         setShowContractSelect(true)
-        const projectId = selectedProject ? parseInt(selectedProject) : undefined
+        const projectId = selectedProject && selectedProject !== "none" ? parseInt(selectedProject) : undefined
         fetchContracts(person.id, projectId)
         fetchToAccountBalance(parseInt(toAccount))
       } else {
@@ -277,7 +277,7 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
 
   // Fetch contract transactions when contract is selected
   useEffect(() => {
-    if (selectedContract) {
+    if (selectedContract && selectedContract !== "none") {
       fetchContractTransactions(parseInt(selectedContract))
     } else {
       setContractTransactionsTotal(0)
@@ -302,6 +302,24 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       toast({
         title: "Սխալ",
         description: "Խնդրում ենք լրացնել բոլոր դաշտերը",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!selectedProject) {
+      toast({
+        title: "Սխալ",
+        description: "Խնդրում ենք ընտրել նախագիծը կամ \"Առանց նախագծի\"",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (showContractSelect && !selectedContract) {
+      toast({
+        title: "Սխալ",
+        description: "Խնդրում ենք ընտրել պայմանագիրը կամ \"Առանց պայմանագրի\"",
         variant: "destructive",
       })
       return
@@ -335,7 +353,7 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
         to: parseInt(toAccount),
         amount: amountNum,
         note: note || null,
-        project_id: selectedProject ? parseInt(selectedProject) : null,
+        project_id: selectedProject === "none" ? null : parseInt(selectedProject),
       }
 
       // Add custom created_at if specified
@@ -352,7 +370,7 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       if (transactionError) throw transactionError
 
       // If contract is selected, create contract_transaction record
-      if (selectedContract && showContractSelect) {
+      if (selectedContract && selectedContract !== "none" && showContractSelect) {
         const { error: contractTransactionError } = await supabase
           .from("contract_transaction")
           .insert({
@@ -369,7 +387,7 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       })
 
       onOpenChange(false)
-      if (onSuccess) onSuccess()
+      if (onSuccess) onSuccess(transactionData.id)
     } catch (error) {
       console.error("Error creating transaction:", error)
       toast({
@@ -436,21 +454,18 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
 
             {/* Project Selection */}
             <div className="space-y-2">
-              <Label>Նախագիծ (ոչ պարտադիր)</Label>
+              <Label>Նախագիծ <span className="text-destructive">*</span></Label>
               <Select value={selectedProject} onValueChange={setSelectedProject}>
                 <SelectTrigger>
                   <SelectValue placeholder="Ընտրեք նախագիծը" />
                 </SelectTrigger>
                 <SelectContent>
-                  {projects.length === 0 ? (
-                    <SelectItem value="empty" disabled>Նախագծեր չկան</SelectItem>
-                  ) : (
-                    projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id.toString()}>
-                        {project.name} ({project.code})
-                      </SelectItem>
-                    ))
-                  )}
+                  <SelectItem value="none">Առանց նախագծի</SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id.toString()}>
+                      {project.name} ({project.code})
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -564,26 +579,19 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
           {/* Contract Selection - shown only if to-account has person_id */}
           {showContractSelect && (
             <div className="space-y-2">
-              <Label>Պայմանագիր (ոչ պարտադիր)</Label>
+              <Label>Պայմանագիր <span className="text-destructive">*</span></Label>
               <Select value={selectedContract} onValueChange={setSelectedContract}>
                 <SelectTrigger>
                   <SelectValue placeholder="Ընտրեք պայմանագիրը" />
                 </SelectTrigger>
                 <SelectContent>
-                  {contracts.length === 0 ? (
-                    <SelectItem value="empty" disabled>
-                      {selectedProject
-                        ? "Ընտրված նախագծի համար ընթացքի մեջ պայմանագրեր չկան"
-                        : "Ընթացքի մեջ պայմանագրեր չկան"}
+                  <SelectItem value="none">Առանց պայմանագրի</SelectItem>
+                  {contracts.map((contract) => (
+                    <SelectItem key={contract.id} value={contract.id.toString()}>
+                      {contract.description.substring(0, 50)}
+                      {contract.description.length > 50 ? "..." : ""}
                     </SelectItem>
-                  ) : (
-                    contracts.map((contract) => (
-                      <SelectItem key={contract.id} value={contract.id.toString()}>
-                        {contract.description.substring(0, 50)}
-                        {contract.description.length > 50 ? "..." : ""}
-                      </SelectItem>
-                    ))
-                  )}
+                  ))}
                 </SelectContent>
               </Select>
             </div>

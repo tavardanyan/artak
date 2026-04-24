@@ -110,7 +110,23 @@ export default function DashboardPage() {
   const [totalInvoices, setTotalInvoices] = useState(0)
   const invoicesPerPage = 10
   const [partnerTotals, setPartnerTotals] = useState({ transfers: 0, payments: 0, balance: 0 })
+  const [partnerTotalsLoading, setPartnerTotalsLoading] = useState(true)
   const [internalAccountsBalance, setInternalAccountsBalance] = useState(0)
+  const [internalBalanceLoading, setInternalBalanceLoading] = useState(true)
+  const [projectsAggregate, setProjectsAggregate] = useState<{
+    budget: number
+    contractsRemaining: number
+    contractsPlanned: number
+    contractsInProgress: number
+    contractsDone: number
+    contractsPaid: number
+    txIncome: number
+    txOutcome: number
+    supplierPaid: number
+    supplierDebt: number
+    warehouseStockValue: number
+  } | null>(null)
+  const [projectsAggregateLoading, setProjectsAggregateLoading] = useState(true)
   const [draftTransfers, setDraftTransfers] = useState<DraftTransfer[]>([])
   const [selectedDraftTransferId, setSelectedDraftTransferId] = useState<number | null>(null)
   const [isDraftDrawerOpen, setIsDraftDrawerOpen] = useState(false)
@@ -129,6 +145,7 @@ export default function DashboardPage() {
     fetchPartnerTotals()
     fetchInternalAccountsBalance()
     fetchDraftTransfers()
+    fetchProjectsAggregate()
   }, [currentPage, transfersPage, invoicesPage])
 
   const fetchMatchLimit = async () => {
@@ -270,6 +287,146 @@ export default function DashboardPage() {
         description: "Չհաջողվեց բեռնել փոխանցումները",
         variant: "destructive",
       })
+    }
+  }
+
+  const fetchProjectsAggregate = async () => {
+    setProjectsAggregateLoading(true)
+    try {
+      // Fetch all projects (including sub-projects) with their partner info
+      const { data: projects } = await supabase
+        .from("project")
+        .select(`id, budget, partner:partner_id(account_id, warehouse_id)`)
+
+      if (!projects) {
+        setProjectsAggregate(null)
+        return
+      }
+
+      let budget = 0
+      let contractsPlanned = 0, contractsInProgress = 0, contractsDone = 0, contractsPaid = 0
+      let txIncome = 0, txOutcome = 0
+      let supplierPaid = 0, supplierDebt = 0
+      let warehouseStockValue = 0
+
+      for (const p of projects as any[]) {
+        budget += p.budget || 0
+
+        // Contracts by status + paid
+        const { data: subContracts } = await supabase
+          .from("contract")
+          .select("id, total, status")
+          .eq("project_id", p.id)
+
+        const contractIds: number[] = []
+        ;(subContracts || []).forEach((c: any) => {
+          if (c.status === "planned") contractsPlanned += c.total || 0
+          else if (c.status === "in progress") contractsInProgress += c.total || 0
+          else if (c.status === "done") contractsDone += c.total || 0
+          if (c.status !== "rejected") contractIds.push(c.id)
+        })
+
+        if (contractIds.length > 0) {
+          const { data: cts } = await supabase
+            .from("contract_transaction")
+            .select("contact_id, transaction:transaction_id(amount)")
+            .in("contact_id", contractIds)
+          ;(cts || []).forEach((ct: any) => {
+            contractsPaid += ct.transaction?.amount || 0
+          })
+        }
+
+        // Transactions (income = partner is sender, outcome = otherwise)
+        const partnerAccId = p.partner?.account_id
+        const { data: subTxs } = await supabase
+          .from("transaction")
+          .select("amount, from, to")
+          .eq("project_id", p.id)
+        ;(subTxs || []).forEach((t: any) => {
+          if (partnerAccId && t.from === partnerAccId) txIncome += t.amount
+          else txOutcome += t.amount
+        })
+
+        // Suppliers + their debt + paid
+        if (p.partner?.warehouse_id) {
+          const { data: subTransfers } = await supabase
+            .from("transfer")
+            .select(`id, from, transfer_item(qty, unit_amount)`)
+            .eq("to", p.partner.warehouse_id)
+            .not("acepted_at", "is", null)
+            .is("rejected_at", null)
+
+          const supplierWarehouseIds = new Set((subTransfers || []).map((t: any) => t.from))
+          if (supplierWarehouseIds.size > 0) {
+            const { data: supplierPartners } = await supabase
+              .from("partner")
+              .select("warehouse_id, account_id")
+              .in("warehouse_id", Array.from(supplierWarehouseIds))
+            const partnerByWh = new Map((supplierPartners || []).map((sp: any) => [sp.warehouse_id, sp]))
+
+            for (const wid of supplierWarehouseIds) {
+              const partnerInfo: any = partnerByWh.get(wid)
+              if (!partnerInfo) continue
+              const transfersForSupplier = (subTransfers || []).filter((t: any) => t.from === wid)
+              const transfersSum = transfersForSupplier.reduce((s: number, t: any) => {
+                return s + (t.transfer_item || []).reduce((ss: number, ti: any) => ss + (ti.qty * ti.unit_amount), 0)
+              }, 0)
+              let paidToSupplier = 0
+              if (partnerInfo.account_id) {
+                const { data: pmts } = await supabase
+                  .from("transaction")
+                  .select("amount")
+                  .eq("to", partnerInfo.account_id)
+                  .eq("project_id", p.id)
+                  .not("accepted_at", "is", null)
+                  .is("rejected_at", null)
+                paidToSupplier = (pmts || []).reduce((s: number, t: any) => s + t.amount, 0)
+              }
+              supplierDebt += transfersSum - paidToSupplier
+              supplierPaid += paidToSupplier
+            }
+          }
+        }
+
+        // Warehouse stock value
+        if (p.partner?.warehouse_id) {
+          const { data: stockData } = await supabase
+            .from("warehouse_item_stock")
+            .select("item_id, stock_qty")
+            .eq("warehouse_id", p.partner.warehouse_id)
+          for (const s of stockData || []) {
+            const { data: tis } = await supabase
+              .from("transfer_item")
+              .select("unit_amount, transfer:transfer_id(acepted_at, to, from)")
+              .eq("item_id", s.item_id)
+              .not("transfer.acepted_at", "is", null)
+              .or(`to.eq.${p.partner.warehouse_id},from.eq.${p.partner.warehouse_id}`, { foreignTable: "transfer" })
+            const valid = (tis || []).map((t: any) => t.unit_amount).filter((pr: any) => pr != null)
+            const avg = valid.length > 0 ? valid.reduce((a: number, b: number) => a + b, 0) / valid.length : 0
+            warehouseStockValue += avg * s.stock_qty
+          }
+        }
+      }
+
+      const contractsRemaining = (contractsPlanned + contractsInProgress + contractsDone) - contractsPaid
+
+      setProjectsAggregate({
+        budget,
+        contractsRemaining,
+        contractsPlanned,
+        contractsInProgress,
+        contractsDone,
+        contractsPaid,
+        txIncome,
+        txOutcome,
+        supplierPaid,
+        supplierDebt,
+        warehouseStockValue,
+      })
+    } catch (error) {
+      console.error("Error fetching projects aggregate:", error)
+    } finally {
+      setProjectsAggregateLoading(false)
     }
   }
 
@@ -531,6 +688,7 @@ export default function DashboardPage() {
   }
 
   const fetchPartnerTotals = async () => {
+    setPartnerTotalsLoading(true)
     try {
       // Get all partners with their accounts and warehouses
       const { data: partners, error: partnersError } = await supabase
@@ -590,10 +748,13 @@ export default function DashboardPage() {
       })
     } catch (error) {
       console.error("Error fetching partner totals:", error)
+    } finally {
+      setPartnerTotalsLoading(false)
     }
   }
 
   const fetchInternalAccountsBalance = async () => {
+    setInternalBalanceLoading(true)
     try {
       // Get all internal accounts (not related to partners or persons)
       const { data: accounts, error: accountsError } = await supabase
@@ -632,6 +793,8 @@ export default function DashboardPage() {
       setInternalAccountsBalance(totalBalance)
     } catch (error) {
       console.error("Error fetching internal accounts balance:", error)
+    } finally {
+      setInternalBalanceLoading(false)
     }
   }
 
@@ -678,22 +841,28 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Գործընկերների ընդհանուր</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Տեղափոխություններ:</span>
-                <span className="font-medium">{formatCurrency(partnerTotals.transfers)}</span>
+            {partnerTotalsLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Վճարումներ:</span>
-                <span className="font-medium text-blue-600">{formatCurrency(partnerTotals.payments)}</span>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Տեղափոխություններ:</span>
+                  <span className="font-medium">{formatCurrency(partnerTotals.transfers)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Վճարումներ:</span>
+                  <span className="font-medium text-blue-600">{formatCurrency(partnerTotals.payments)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm pt-2 border-t">
+                  <span className="font-medium">Մնացորդ:</span>
+                  <span className={`font-bold ${partnerTotals.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {formatCurrency(partnerTotals.balance)}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center justify-between text-sm pt-2 border-t">
-                <span className="font-medium">Մնացորդ:</span>
-                <span className={`font-bold ${partnerTotals.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {formatCurrency(partnerTotals.balance)}
-                </span>
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 
@@ -702,12 +871,20 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Ներքին հաշիվների մնացորդ</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(internalAccountsBalance)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Ներքին հաշիվների ընդհանուր մնացորդ
-            </p>
+            {internalBalanceLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <div className="text-2xl font-bold">
+                  {formatCurrency(internalAccountsBalance)}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Ներքին հաշիվների ընդհանուր մնացորդ
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -716,429 +893,169 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Տարբերություն</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${
-              (internalAccountsBalance - partnerTotals.balance) >= 0 ? 'text-green-600' : 'text-red-600'
-            }`}>
-              {formatCurrency(internalAccountsBalance - partnerTotals.balance)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Ներքին հաշիվներ - Գործընկերների մնացորդ
-            </p>
+            {partnerTotalsLoading || internalBalanceLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <div className={`text-2xl font-bold ${
+                  (internalAccountsBalance - partnerTotals.balance) >= 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {formatCurrency(internalAccountsBalance - partnerTotals.balance)}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Ներքին հաշիվներ - Գործընկերների մնացորդ
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Left Column: Items & Transfers */}
-        <div className="space-y-4">
-          <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">
-            Չստուգված ապրանքներ ({totalItems})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {items.length === 0 ? (
-            <div className="text-center py-8 text-sm text-muted-foreground">
-              Բոլոր ապրանքները ստուգված են
+      {/* Projects Big Summary Card */}
+      {projectsAggregateLoading ? (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow className="text-xs">
-                    <TableHead className="w-[35%] py-2">Անուն</TableHead>
-                    <TableHead className="w-[10%] py-2">Միավոր</TableHead>
-                    <TableHead className="w-[15%] py-2">Ստեղծման ա/թ</TableHead>
-                    <TableHead className="w-[30%] py-2">Ծնող ապրանք</TableHead>
-                    <TableHead className="w-[10%] py-2"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.map((item) => {
-                    const suggestions = getParentSuggestions(item.name, item.id)
-                    const isProcessing = processingItems.has(item.id)
-
-                    return (
-                      <TableRow key={item.id} className="text-xs">
-                        <TableCell className="font-medium py-2">{item.name}</TableCell>
-                        <TableCell className="py-2">{item.unit || "-"}</TableCell>
-                        <TableCell className="py-2">{formatDate(item.created_at)}</TableCell>
-                        <TableCell className="py-2">
-                          <Select
-                            value={selectedParents[item.id]?.toString() || "none"}
-                            onValueChange={(value) => {
-                              setSelectedParents((prev) => ({
-                                ...prev,
-                                [item.id]: value === "none" ? null : Number(value),
-                              }))
-                            }}
-                            disabled={isProcessing}
-                          >
-                            <SelectTrigger className="w-full h-8 text-xs">
-                              <SelectValue placeholder="Ընտրել ծնող ապրանք" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none" className="text-xs">Ոչ մեկը</SelectItem>
-                              {suggestions.map((suggestion) => (
-                                <SelectItem key={suggestion.id} value={suggestion.id.toString()} className="text-xs">
-                                  {suggestion.name} ({suggestion.similarity.toFixed(0)}%)
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell className="py-2">
-                          <Button
-                            size="sm"
-                            onClick={() => handleDone(item)}
-                            disabled={isProcessing}
-                            className="h-7 text-xs"
-                          >
-                            {isProcessing ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <>
-                                <Check className="h-3 w-3 mr-1" />
-                                Պատրաստ
-                              </>
-                            )}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-3">
-                  <div className="text-xs text-muted-foreground">
-                    Էջ {currentPage} / {totalPages}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                      className="h-7 text-xs"
-                    >
-                      Նախորդ
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={currentPage === totalPages}
-                      className="h-7 text-xs"
-                    >
-                      Հաջորդ
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </CardContent>
-          </Card>
-
-          {/* Transfers Table */}
-          <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">
-            Անհայտ փոխանցումներ ({totalTransfers})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {transfers.length === 0 ? (
-            <div className="text-center py-8 text-sm text-muted-foreground">
-              Բոլոր փոխանցումները նշանակված են
+          </CardContent>
+        </Card>
+      ) : projectsAggregate && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Բյուջե</p>
+                <p className="text-2xl font-bold">{projectsAggregate.budget ? formatCurrency(projectsAggregate.budget) : "-"}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Մնում է վճարել</p>
+                <p className={`text-2xl font-bold ${projectsAggregate.contractsRemaining > 0 ? "text-red-600" : "text-green-600"}`}>
+                  {formatCurrency(projectsAggregate.contractsRemaining)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Տարբերություն (գործարքներ)</p>
+                <p className={`text-2xl font-bold ${projectsAggregate.txIncome - projectsAggregate.txOutcome >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  {formatCurrency(projectsAggregate.txIncome - projectsAggregate.txOutcome)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Մատակարարների պարտք</p>
+                <p className={`text-2xl font-bold ${projectsAggregate.supplierDebt > 0 ? "text-red-600" : "text-green-600"}`}>
+                  {formatCurrency(projectsAggregate.supplierDebt)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Պահեստի արժեք</p>
+                <p className="text-2xl font-bold">{formatCurrency(projectsAggregate.warehouseStockValue)}</p>
+              </div>
             </div>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow className="text-xs">
-                    <TableHead className="w-[15%] py-2">Ա/թ</TableHead>
-                    <TableHead className="w-[20%] py-2">Որտեղից</TableHead>
-                    <TableHead className="w-[25%] py-2">Հասցե</TableHead>
-                    <TableHead className="w-[30%] py-2">Նոր նշանակում</TableHead>
-                    <TableHead className="w-[10%] py-2"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {transfers.map((transfer) => {
-                    const isProcessing = processingTransfers.has(transfer.id)
+          </CardContent>
+        </Card>
+      )}
 
-                    return (
-                      <TableRow key={transfer.id} className="text-xs">
-                        <TableCell className="py-2">{formatDate(transfer.created_at)}</TableCell>
-                        <TableCell className="py-2">
-                          {transfer.from_warehouse?.name || `ID: ${transfer.from}`}
-                        </TableCell>
-                        <TableCell
-                          className={`py-2 ${transfer.invoice_id ? 'cursor-pointer hover:underline text-blue-600' : ''}`}
-                          onClick={() => {
-                            if (transfer.invoice_id) {
-                              setSelectedInvoiceId(transfer.invoice_id)
-                              setIsInvoiceDrawerOpen(true)
-                            }
-                          }}
-                        >
-                          {transfer.invoice?.destination_address || "-"}
-                        </TableCell>
-                        <TableCell className="py-2">
-                          <Select
-                            value={selectedWarehouses[transfer.id]?.toString() || defaultWarehouse?.toString() || ""}
-                            onValueChange={(value) => {
-                              setSelectedWarehouses((prev) => ({
-                                ...prev,
-                                [transfer.id]: Number(value),
-                              }))
-                            }}
-                            disabled={isProcessing}
-                          >
-                            <SelectTrigger className="w-full h-8 text-xs">
-                              <SelectValue placeholder="Ընտրել պահեստ" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {warehouses.map((warehouse) => (
-                                <SelectItem key={warehouse.id} value={warehouse.id.toString()} className="text-xs">
-                                  {warehouse.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell className="py-2">
-                          <Button
-                            size="sm"
-                            onClick={() => handleUpdateTransferWarehouse(transfer.id)}
-                            disabled={isProcessing}
-                            className="h-7 text-xs"
-                          >
-                            {isProcessing ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <>
-                                <Check className="h-3 w-3 mr-1" />
-                                Պատրաստ
-                              </>
-                            )}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-
-              {/* Pagination */}
-              {totalTransferPages > 1 && (
-                <div className="flex items-center justify-between mt-3">
-                  <div className="text-xs text-muted-foreground">
-                    Էջ {transfersPage} / {totalTransferPages}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setTransfersPage((p) => Math.max(1, p - 1))}
-                      disabled={transfersPage === 1}
-                      className="h-7 text-xs"
-                    >
-                      Նախորդ
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setTransfersPage((p) => Math.min(totalTransferPages, p + 1))}
-                      disabled={transfersPage === totalTransferPages}
-                      className="h-7 text-xs"
-                    >
-                      Հաջորդ
-                    </Button>
-                  </div>
+      {/* Project Detail Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Contracts Summary */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Պայմանագրերի ամփոփում</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {projectsAggregateLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : projectsAggregate && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Պլանավորված:</span>
+                  <span className="font-medium">{formatCurrency(projectsAggregate.contractsPlanned)}</span>
                 </div>
-              )}
-            </>
-          )}
-        </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Column: Invoices & Pending Transfers */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">
-                Չստուգված ապրանքագրեր ({totalInvoices})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {invoices.length === 0 ? (
-                <div className="text-center py-8 text-sm text-muted-foreground">
-                  Բոլոր ապրանքագրերը ստուգված են
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Ընթացքի մեջ:</span>
+                  <span className="font-medium">{formatCurrency(projectsAggregate.contractsInProgress)}</span>
                 </div>
-              ) : (
-                <>
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="text-xs">
-                        <TableHead className="w-[30%] py-2">Համար</TableHead>
-                        <TableHead className="w-[25%] py-2">Ա/թ</TableHead>
-                        <TableHead className="w-[30%] py-2">Մատակարար</TableHead>
-                        <TableHead className="w-[15%] py-2"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {invoices.map((invoice) => {
-                        const isProcessing = processingInvoices.has(invoice.id)
-
-                        return (
-                          <TableRow
-                            key={invoice.id}
-                            className="text-xs cursor-pointer hover:bg-accent"
-                            onClick={() => handleInvoiceClick(invoice)}
-                          >
-                            <TableCell className="font-medium py-2">
-                              {invoice.serial_no || invoice.id.substring(0, 8)}
-                            </TableCell>
-                            <TableCell className="py-2">
-                              {formatDate(invoice.issued_at || invoice.created_at)}
-                            </TableCell>
-                            <TableCell className="py-2">
-                              {invoice.supplier?.name || invoice.supplier_tin || "-"}
-                            </TableCell>
-                            <TableCell className="py-2">
-                              <Button
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleMarkInvoiceSeen(invoice.id)
-                                }}
-                                disabled={isProcessing}
-                                className="h-7 text-xs"
-                              >
-                                {isProcessing ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <>
-                                    <Eye className="h-3 w-3 mr-1" />
-                                    Դիտված
-                                  </>
-                                )}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-
-                  {/* Pagination */}
-                  {totalInvoicePages > 1 && (
-                    <div className="flex items-center justify-between mt-3">
-                      <div className="text-xs text-muted-foreground">
-                        Էջ {invoicesPage} / {totalInvoicePages}
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setInvoicesPage((p) => Math.max(1, p - 1))}
-                          disabled={invoicesPage === 1}
-                          className="h-7 text-xs"
-                        >
-                          Նախորդ
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setInvoicesPage((p) => Math.min(totalInvoicePages, p + 1))}
-                          disabled={invoicesPage === totalInvoicePages}
-                          className="h-7 text-xs"
-                        >
-                          Հաջորդ
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-          {/* Pending Transfers */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">
-                Սևագիր տեղափոխումներ ({draftTransfers.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {draftTransfers.length === 0 ? (
-                <div className="text-center py-8 text-sm text-muted-foreground">
-                  Սևագիր տեղափոխումներ չկան
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Կատարված:</span>
+                  <span className="font-medium">{formatCurrency(projectsAggregate.contractsDone)}</span>
                 </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow className="text-xs">
-                      <TableHead className="w-[10%] py-2">ID</TableHead>
-                      <TableHead className="w-[30%] py-2">Սկսած</TableHead>
-                      <TableHead className="w-[30%] py-2">Դեպի</TableHead>
-                      <TableHead className="w-[30%] py-2">Ստեղծված</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {draftTransfers.map((transfer) => (
-                      <TableRow
-                        key={transfer.id}
-                        className="text-xs cursor-pointer hover:bg-accent"
-                        onClick={() => {
-                          setSelectedDraftTransferId(transfer.id)
-                          setIsDraftDrawerOpen(true)
-                        }}
-                      >
-                        <TableCell className="py-2 font-medium">#{transfer.id}</TableCell>
-                        <TableCell className="py-2">
-                          {transfer.from_warehouse?.name || `#${transfer.from}`}
-                        </TableCell>
-                        <TableCell className="py-2">
-                          {transfer.to_warehouse?.name || `#${transfer.to}`}
-                        </TableCell>
-                        <TableCell className="py-2">
-                          {formatDate(transfer.created_at)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                <div className="flex items-center justify-between text-sm pt-2 border-t">
+                  <span className="font-medium">Փաստացի վճարված:</span>
+                  <span className="font-bold text-green-600">{formatCurrency(projectsAggregate.contractsPaid)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium">Մնում է վճարել:</span>
+                  <span className={`font-bold ${projectsAggregate.contractsRemaining > 0 ? "text-red-600" : "text-green-600"}`}>
+                    {formatCurrency(projectsAggregate.contractsRemaining)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* All Transactions */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Բոլոր գործարքներ</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {projectsAggregateLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : projectsAggregate && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Մուտքեր:</span>
+                  <span className="font-medium text-green-600">+{formatCurrency(projectsAggregate.txIncome)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Ելքեր:</span>
+                  <span className="font-medium text-red-600">-{formatCurrency(projectsAggregate.txOutcome)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm pt-2 border-t">
+                  <span className="font-medium">Տարբերություն:</span>
+                  <span className={`font-bold ${projectsAggregate.txIncome - projectsAggregate.txOutcome >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    {formatCurrency(projectsAggregate.txIncome - projectsAggregate.txOutcome)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Supplier Transactions */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Մատակարարների գործարքներ</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {projectsAggregateLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : projectsAggregate && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Արդեն վճարված:</span>
+                  <span className="font-medium text-green-600">{formatCurrency(projectsAggregate.supplierPaid)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm pt-2 border-t">
+                  <span className="font-medium">Պարտք:</span>
+                  <span className={`font-bold ${projectsAggregate.supplierDebt > 0 ? "text-red-600" : "text-green-600"}`}>
+                    {formatCurrency(projectsAggregate.supplierDebt)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
-
-      {/* Draft Transfer Detail Drawer */}
-      {selectedDraftTransferId && (
-        <TransferDetailDrawer
-          open={isDraftDrawerOpen}
-          onOpenChange={setIsDraftDrawerOpen}
-          transferId={selectedDraftTransferId}
-        />
-      )}
-
-      {/* Invoice Details Drawer */}
-      {selectedInvoiceId && (
-        <InvoiceDetailDrawer
-          open={isInvoiceDrawerOpen}
-          onOpenChange={setIsInvoiceDrawerOpen}
-          invoiceId={selectedInvoiceId}
-        />
-      )}
     </div>
   )
 }

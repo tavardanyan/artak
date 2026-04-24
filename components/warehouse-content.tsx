@@ -149,6 +149,8 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [isItemDrawerOpen, setIsItemDrawerOpen] = useState(false)
   const [isCreateTransferDrawerOpen, setIsCreateTransferDrawerOpen] = useState(false)
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
+  const [fromWarehouseStock, setFromWarehouseStock] = useState<Record<number, number>>({})
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<number>>(new Set())
   const [fromWhTab, setFromWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
   const [toWhTab, setToWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
   const [destWhTab, setDestWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
@@ -621,6 +623,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       setCreateTransaction(false)
       setFromAccount(null)
       setToAccount(null)
+      setSelectedItemIds(new Set())
       setIsCreateTransferDrawerOpen(false)
 
       // Refresh transfers list
@@ -658,6 +661,23 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       }
     }
   }, [initialTransferData, warehouses])
+
+  // Fetch stock for from warehouse when it changes (for transfer creation)
+  useEffect(() => {
+    if (!fromWarehouse || !isCreateTransferDrawerOpen) return
+    const fetchStock = async () => {
+      const { data } = await supabase
+        .from("warehouse_item_stock")
+        .select("item_id, stock_qty")
+        .eq("warehouse_id", fromWarehouse)
+      const map: Record<number, number> = {}
+      ;(data || []).forEach((s: { item_id: number; stock_qty: number }) => {
+        map[s.item_id] = s.stock_qty
+      })
+      setFromWarehouseStock(map)
+    }
+    fetchStock()
+  }, [fromWarehouse, isCreateTransferDrawerOpen])
 
   // Auto-enable transaction creation if from or to warehouse is partner type
   // But don't override if we have initial transfer data
@@ -882,10 +902,37 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
         <TabsContent value="items" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Ապրանքների պաշար</CardTitle>
-              <CardDescription>
-                Հասանելի ապրանքներ այս պահեստում
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Ապրանքների պաշար</CardTitle>
+                  <CardDescription>
+                    Հասանելի ապրանքներ այս պահեստում
+                  </CardDescription>
+                </div>
+                {selectedItemIds.size > 0 && (
+                  <Button
+                    onClick={() => {
+                      const selectedItems = warehouseItems
+                        .filter(wi => selectedItemIds.has(wi.item_id))
+                        .map(wi => ({
+                          itemName: wi.item?.name || "",
+                          itemId: wi.item_id,
+                          unit: wi.item?.unit || "",
+                          qty: wi.stock_qty,
+                          unitPrice: wi.last_price ?? 0,
+                          unitVat: 0,
+                        }))
+                      if (selectedItems.length > 0) {
+                        setNewTransferItems(selectedItems)
+                        setIsCreateTransferDrawerOpen(true)
+                      }
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Ստեղծել տեղափոխում ({selectedItemIds.size})
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {warehouseItems.length === 0 ? (
@@ -897,6 +944,20 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[40px]">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer"
+                          checked={warehouseItems.length > 0 && selectedItemIds.size === warehouseItems.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedItemIds(new Set(warehouseItems.map(i => i.item_id)))
+                            } else {
+                              setSelectedItemIds(new Set())
+                            }
+                          }}
+                        />
+                      </TableHead>
                       <TableHead>Անվանում</TableHead>
                       <TableHead>Միավոր</TableHead>
                       <TableHead className="text-right">Քանակ</TableHead>
@@ -908,12 +969,29 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   <TableBody>
                     {warehouseItems.map((item) => {
                       const totalValue = item.avg_price != null ? item.avg_price * item.stock_qty : null
+                      const isSelected = selectedItemIds.has(item.item_id)
                       return (
                         <TableRow
                           key={item.item_id}
                           className="cursor-pointer hover:bg-accent"
                           onClick={() => handleItemClick(item)}
                         >
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const next = new Set(selectedItemIds)
+                                if (e.target.checked) {
+                                  next.add(item.item_id)
+                                } else {
+                                  next.delete(item.item_id)
+                                }
+                                setSelectedItemIds(next)
+                              }}
+                            />
+                          </TableCell>
                           <TableCell className="font-medium">{item.item?.name || "Անհայտ"}</TableCell>
                           <TableCell className="text-muted-foreground">
                             {item.item?.unit || "-"}
@@ -935,6 +1013,16 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     })}
                   </TableBody>
                 </Table>
+              )}
+              {warehouseItems.length > 0 && (
+                <div className="flex justify-between items-center pt-4 mt-4 border-t">
+                  <span className="font-medium">Ընդամենը ({warehouseItems.length} ապրանք)</span>
+                  <span className="text-lg font-bold">
+                    {warehouseItems
+                      .reduce((sum, item) => sum + (item.avg_price != null ? item.avg_price * item.stock_qty : 0), 0)
+                      .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏
+                  </span>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1221,7 +1309,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
       {/* Create Transfer Drawer */}
       <Sheet open={isCreateTransferDrawerOpen} onOpenChange={setIsCreateTransferDrawerOpen}>
-        <SheetContent className="w-full sm:max-w-[70vw] overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-[75vw] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Ստեղծել նոր տեղափոխում</SheetTitle>
             <SheetDescription>
@@ -1459,9 +1547,11 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                         </TableCell>
                         <TableCell>
                           {item.itemId && (
-                            <Badge variant="outline" className="text-xs">
-                              Առկա է
-                            </Badge>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant="outline" className="text-xs whitespace-nowrap">
+                                Պաշար՝ {fromWarehouseStock[item.itemId] ?? 0}
+                              </Badge>
+                            </div>
                           )}
                           {item.itemName && !item.itemId && (
                             <Badge variant="secondary" className="text-xs">

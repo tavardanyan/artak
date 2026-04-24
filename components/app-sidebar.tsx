@@ -18,6 +18,9 @@ import {
   Plus,
   Contact,
   Package,
+  AlertCircle,
+  TruckIcon,
+  PackageCheck,
 } from "lucide-react"
 
 import {
@@ -49,6 +52,7 @@ import { createClient } from "@/lib/supabase/client"
 import { CreateOrderDrawer } from "@/components/create-order-drawer"
 import { CreateTransactionDrawer } from "@/components/create-transaction-drawer"
 import { CreateProjectDrawer } from "@/components/create-project-drawer"
+import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
 
 const mainNavItems = [
   {
@@ -65,11 +69,6 @@ const mainNavItems = [
     title: "Ֆինանսներ",
     url: "/dashboard/finance",
     icon: DollarSign,
-  },
-  {
-    title: "Հաշվետվություններ",
-    url: "/dashboard/reports",
-    icon: FileText,
   },
   {
     title: "Օրացույց",
@@ -107,11 +106,6 @@ const mainNavItems = [
     icon: Receipt,
   },
   {
-    title: "Նախագծեր",
-    url: "/dashboard/projects",
-    icon: Folder,
-  },
-  {
     title: "Կարգավորումներ",
     url: "/dashboard/configs",
     icon: Settings,
@@ -123,6 +117,7 @@ interface Project {
   name: string
   code: string
   status: string
+  parent_project: number | null
 }
 
 export function AppSidebar() {
@@ -131,23 +126,41 @@ export function AppSidebar() {
   const supabase = createClient()
   const [isOrderDrawerOpen, setIsOrderDrawerOpen] = React.useState(false)
   const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = React.useState(false)
+  const [createdTransactionId, setCreatedTransactionId] = React.useState<number | null>(null)
+  const [isTransactionDetailOpen, setIsTransactionDetailOpen] = React.useState(false)
   const [isProjectDrawerOpen, setIsProjectDrawerOpen] = React.useState(false)
   const [activeProjects, setActiveProjects] = React.useState<Project[]>([])
+  const [uncheckedCounts, setUncheckedCounts] = React.useState({ items: 0, invoices: 0, transfers: 0, draftTransfers: 0 })
 
   React.useEffect(() => {
     fetchActiveProjects()
+    fetchUncheckedCounts()
   }, [])
+
+  const fetchUncheckedCounts = async () => {
+    const [items, invoices, transfers, draftTransfers] = await Promise.all([
+      supabase.from("item").select("*", { count: "exact", head: true }).is("parent", null).or("seen.is.null,seen.eq.false"),
+      supabase.from("invoice").select("*", { count: "exact", head: true }).eq("seen", false),
+      supabase.from("transfer").select("*", { count: "exact", head: true }).eq("to", 114),
+      supabase.from("transfer").select("*", { count: "exact", head: true }).is("delivered_at", null).is("acepted_at", null).is("rejected_at", null),
+    ])
+    setUncheckedCounts({
+      items: items.count || 0,
+      invoices: invoices.count || 0,
+      transfers: transfers.count || 0,
+      draftTransfers: draftTransfers.count || 0,
+    })
+  }
 
   const fetchActiveProjects = async () => {
     const { data, error } = await supabase
       .from("project")
-      .select("id, name, code, status")
+      .select("id, name, code, status, parent_project")
       .eq("status", "active")
       .order("created_at", { ascending: false })
-      .limit(10)
 
     if (error) {
-      console.error("Error fetching active projects:", error)
+      console.error("Error fetching active projects:", error.message, error.details, error.hint)
       return
     }
 
@@ -221,7 +234,6 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Գլխավոր</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {mainNavItems.map((item) => (
@@ -242,23 +254,88 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup>
+          <SidebarGroupLabel>Չստուգված</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/dashboard/unchecked/items"}>
+                  <a href="/dashboard/unchecked/items">
+                    <Package />
+                    <span>Ապրանքներ</span>
+                    {uncheckedCounts.items > 0 && <span className="ml-auto text-xs text-muted-foreground">{uncheckedCounts.items}</span>}
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/dashboard/unchecked/invoices"}>
+                  <a href="/dashboard/unchecked/invoices">
+                    <Receipt />
+                    <span>Հաշիվ ապրանքագրեր</span>
+                    {uncheckedCounts.invoices > 0 && <span className="ml-auto text-xs text-muted-foreground">{uncheckedCounts.invoices}</span>}
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/dashboard/unchecked/transfers"}>
+                  <a href="/dashboard/unchecked/transfers">
+                    <TruckIcon />
+                    <span>Փոխանցումներ</span>
+                    {uncheckedCounts.transfers > 0 && <span className="ml-auto text-xs text-muted-foreground">{uncheckedCounts.transfers}</span>}
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/dashboard/unchecked/draft-transfers"}>
+                  <a href="/dashboard/unchecked/draft-transfers">
+                    <PackageCheck />
+                    <span>Տեղափոխումներ</span>
+                    {uncheckedCounts.draftTransfers > 0 && <span className="ml-auto text-xs text-muted-foreground">{uncheckedCounts.draftTransfers}</span>}
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
           <SidebarGroupLabel>Ակտիվ նախագծեր</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {activeProjects.length > 0 ? (
-                activeProjects.map((project) => (
-                  <SidebarMenuItem key={project.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === `/dashboard/projects/${project.id}`}
-                    >
-                      <a href={`/dashboard/projects/${project.id}`}>
-                        <Folder />
-                        <span>{project.name}</span>
-                      </a>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))
+                activeProjects
+                  .filter(p => !p.parent_project)
+                  .map((project) => {
+                    const subProjects = activeProjects.filter(p => p.parent_project === project.id)
+                    return (
+                      <React.Fragment key={project.id}>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={pathname === `/dashboard/projects/${project.id}`}
+                          >
+                            <a href={`/dashboard/projects/${project.id}`}>
+                              <Folder />
+                              <span>{project.name}</span>
+                            </a>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        {subProjects.map((sub) => (
+                          <SidebarMenuItem key={sub.id}>
+                            <SidebarMenuButton
+                              asChild
+                              isActive={pathname === `/dashboard/projects/${sub.id}`}
+                              className="pl-8"
+                            >
+                              <a href={`/dashboard/projects/${sub.id}`}>
+                                <Folder className="h-3 w-3" />
+                                <span className="text-sm">{sub.name}</span>
+                              </a>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        ))}
+                      </React.Fragment>
+                    )
+                  })
               ) : (
                 <div className="px-3 py-2 text-sm text-muted-foreground">
                   Ակտիվ նախագծեր չկան
@@ -322,6 +399,19 @@ export function AppSidebar() {
       <CreateTransactionDrawer
         open={isTransactionDrawerOpen}
         onOpenChange={setIsTransactionDrawerOpen}
+        onSuccess={(transactionId) => {
+          if (transactionId) {
+            setCreatedTransactionId(transactionId)
+            setIsTransactionDetailOpen(true)
+          }
+        }}
+      />
+
+      {/* Transaction Detail Drawer (opened after creation) */}
+      <TransactionDetailDrawer
+        open={isTransactionDetailOpen}
+        onOpenChange={setIsTransactionDetailOpen}
+        transactionId={createdTransactionId}
       />
 
       {/* Project Creation Drawer */}

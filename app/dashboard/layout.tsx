@@ -13,6 +13,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Bell, RefreshCw } from "lucide-react"
+import { TodayTasksHeader } from "@/components/today-tasks-header"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { TaxSyncProvider } from "@/providers/tax-sync-provider"
@@ -37,6 +38,7 @@ function DashboardHeader() {
         </BreadcrumbList>
       </Breadcrumb>
       <div className="ml-auto flex items-center gap-2">
+        <TodayTasksHeader />
         {/* Tax Sync Status */}
         {syncSettings?.lastSyncDate && (
           <Button

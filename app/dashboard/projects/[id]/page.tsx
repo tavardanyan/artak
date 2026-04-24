@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table"
 import {
   Calendar,
+  Calendar as CalendarIcon,
   DollarSign,
   Package,
   Receipt,
@@ -50,6 +51,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { WarehouseContent } from "@/components/warehouse-content"
+import { ProjectDocuments } from "@/components/project-documents"
+import { TaskDrawer } from "@/components/task-drawer"
 import { EditProjectDrawer } from "@/components/edit-project-drawer"
 import { PartnerEditDrawer } from "@/components/partner-edit-drawer"
 import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
@@ -61,6 +64,7 @@ interface Project {
   type: string
   address: string | null
   partner_id: number
+  parent_project: number | null
   start: string | null
   end: string | null
   agreement_date: string | null
@@ -275,9 +279,22 @@ export default function ProjectPage() {
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null)
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null)
   const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null)
+  const [internalAccountIds, setInternalAccountIds] = useState<Set<number>>(new Set())
+  const [warehouseStockValue, setWarehouseStockValue] = useState(0)
+  const [tasks, setTasks] = useState<Array<{ id: number; title: string; text: string | null; project_id: number | null; day: string; seen: boolean }>>([])
+  const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false)
+  const [selectedTask, setSelectedTask] = useState<any>(null)
+  const [subProjectAggregates, setSubProjectAggregates] = useState<{
+    budget: number
+    contractsRemaining: number
+    txDifference: number
+    supplierDebt: number
+    warehouseStockValue: number
+  } | null>(null)
 
   useEffect(() => {
     fetchProject()
+    fetchInternalAccounts()
   }, [projectId])
 
   useEffect(() => {
@@ -287,8 +304,172 @@ export default function ProjectPage() {
       fetchStaff()
       fetchContacts()
       fetchSuppliers()
+      fetchWarehouseStockValue()
+      fetchSubProjectAggregates()
+      fetchTasks()
     }
   }, [project])
+
+  const fetchTasks = async () => {
+    if (!project?.id) return
+    const { data } = await supabase
+      .from("task")
+      .select("id, title, text, project_id, day, seen")
+      .eq("project_id", project.id)
+      .order("day", { ascending: false })
+    setTasks(data || [])
+  }
+
+  const fetchSubProjectAggregates = async () => {
+    if (!project?.id) {
+      setSubProjectAggregates(null)
+      return
+    }
+    const { data: subs } = await supabase
+      .from("project")
+      .select(`
+        id,
+        budget,
+        partner:partner_id(account_id, warehouse_id)
+      `)
+      .eq("parent_project", project.id)
+
+    if (!subs || subs.length === 0) {
+      setSubProjectAggregates(null)
+      return
+    }
+
+    let budget = 0, contractsRemaining = 0, txDifference = 0, supplierDebt = 0, warehouseStockValue = 0
+
+    for (const sub of subs as any[]) {
+      budget += sub.budget || 0
+
+      // Contracts: remaining to pay = total of non-rejected contracts - paid
+      const { data: subContracts } = await supabase
+        .from("contract")
+        .select("id, total, status")
+        .eq("project_id", sub.id)
+        .neq("status", "rejected")
+      const contractTotals = (subContracts || []).reduce((s: number, c: any) => s + (c.total || 0), 0)
+      let contractPaid = 0
+      if (subContracts && subContracts.length > 0) {
+        const ids = subContracts.map((c: any) => c.id)
+        const { data: cts } = await supabase
+          .from("contract_transaction")
+          .select("contact_id, transaction:transaction_id(amount)")
+          .in("contact_id", ids)
+        contractPaid = (cts || []).reduce((s: number, ct: any) => s + (ct.transaction?.amount || 0), 0)
+      }
+      contractsRemaining += contractTotals - contractPaid
+
+      // Transactions for diff (matches table logic)
+      const { data: subTxs } = await supabase
+        .from("transaction")
+        .select("amount, from")
+        .eq("project_id", sub.id)
+      const partnerAccId = sub.partner?.account_id
+      ;(subTxs || []).forEach((t: any) => {
+        if (partnerAccId && t.from === partnerAccId) txDifference += t.amount
+        else txDifference -= t.amount
+      })
+
+      // Supplier debt for sub project: get suppliers (transfers in) and payments
+      if (sub.partner?.warehouse_id) {
+        const { data: subTransfers } = await supabase
+          .from("transfer")
+          .select(`id, from, transfer_item(qty, unit_amount)`)
+          .eq("to", sub.partner.warehouse_id)
+          .not("acepted_at", "is", null)
+          .is("rejected_at", null)
+        // Group by from warehouse
+        const supplierWarehouseIds = new Set((subTransfers || []).map((t: any) => t.from))
+        if (supplierWarehouseIds.size > 0) {
+          const { data: supplierPartners } = await supabase
+            .from("partner")
+            .select("warehouse_id, account_id")
+            .in("warehouse_id", Array.from(supplierWarehouseIds))
+          const partnerByWh = new Map((supplierPartners || []).map((p: any) => [p.warehouse_id, p]))
+          for (const wid of supplierWarehouseIds) {
+            const partnerInfo = partnerByWh.get(wid)
+            if (!partnerInfo) continue
+            const transfersForSupplier = (subTransfers || []).filter((t: any) => t.from === wid)
+            const transfersSum = transfersForSupplier.reduce((s: number, t: any) => {
+              return s + (t.transfer_item || []).reduce((ss: number, ti: any) => ss + (ti.qty * ti.unit_amount), 0)
+            }, 0)
+            let paidToSupplier = 0
+            if (partnerInfo.account_id) {
+              const { data: pmts } = await supabase
+                .from("transaction")
+                .select("amount")
+                .eq("to", partnerInfo.account_id)
+                .eq("project_id", sub.id)
+                .not("accepted_at", "is", null)
+                .is("rejected_at", null)
+              paidToSupplier = (pmts || []).reduce((s: number, t: any) => s + t.amount, 0)
+            }
+            supplierDebt += transfersSum - paidToSupplier
+          }
+        }
+      }
+
+      // Warehouse stock value
+      if (sub.partner?.warehouse_id) {
+        const { data: stockData } = await supabase
+          .from("warehouse_item_stock")
+          .select("item_id, stock_qty")
+          .eq("warehouse_id", sub.partner.warehouse_id)
+        for (const s of stockData || []) {
+          const { data: tis } = await supabase
+            .from("transfer_item")
+            .select("unit_amount, transfer:transfer_id(acepted_at, to, from)")
+            .eq("item_id", s.item_id)
+            .not("transfer.acepted_at", "is", null)
+            .or(`to.eq.${sub.partner.warehouse_id},from.eq.${sub.partner.warehouse_id}`, { foreignTable: "transfer" })
+          const valid = (tis || []).map((t: any) => t.unit_amount).filter((p: any) => p != null)
+          const avg = valid.length > 0 ? valid.reduce((a: number, b: number) => a + b, 0) / valid.length : 0
+          warehouseStockValue += avg * s.stock_qty
+        }
+      }
+    }
+
+    setSubProjectAggregates({ budget, contractsRemaining, txDifference, supplierDebt, warehouseStockValue })
+  }
+
+  const fetchWarehouseStockValue = async () => {
+    if (!project?.partner?.warehouse_id) {
+      setWarehouseStockValue(0)
+      return
+    }
+    const warehouseId = project.partner.warehouse_id
+    const { data: stockData } = await supabase
+      .from("warehouse_item_stock")
+      .select("item_id, stock_qty")
+      .eq("warehouse_id", warehouseId)
+    if (!stockData || stockData.length === 0) {
+      setWarehouseStockValue(0)
+      return
+    }
+    // Compute avg_price per item from accepted transfer_items, then sum value
+    const prices = await Promise.all(
+      stockData.map(async (s: any) => {
+        const { data: transferItems } = await supabase
+          .from("transfer_item")
+          .select("unit_amount, transfer:transfer_id(acepted_at, to, from)")
+          .eq("item_id", s.item_id)
+          .not("transfer.acepted_at", "is", null)
+          .or(`to.eq.${warehouseId},from.eq.${warehouseId}`, { foreignTable: "transfer" })
+        const valid = (transferItems || []).map((t: any) => t.unit_amount).filter((p: any) => p != null)
+        const avg = valid.length > 0 ? valid.reduce((a: number, b: number) => a + b, 0) / valid.length : 0
+        return avg * s.stock_qty
+      })
+    )
+    setWarehouseStockValue(prices.reduce((a, b) => a + b, 0))
+  }
+
+  const fetchInternalAccounts = async () => {
+    const { data } = await supabase.from("account").select("id").eq("internal", true)
+    setInternalAccountIds(new Set((data || []).map(a => a.id)))
+  }
 
   const fetchProject = async () => {
     try {
@@ -501,12 +682,12 @@ export default function ProjectPage() {
             }
           }
 
-          // Get transactions FROM project's account TO supplier's account with project_id
-          if (supplier.account_id && project.partner?.account_id) {
+          // Get all transactions TO supplier's account tagged with this project
+          // (regardless of which internal account paid)
+          if (supplier.account_id) {
             const { data: transactions } = await supabase
               .from("transaction")
               .select("amount")
-              .eq("from", project.partner.account_id)
               .eq("to", supplier.account_id)
               .eq("project_id", project.id)
               .not("accepted_at", "is", null)
@@ -614,99 +795,227 @@ export default function ProjectPage() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="documents">Փաստաթղթեր</TabsTrigger>
+          <TabsTrigger value="tasks">
+            Առաջադրանքներ
+            {tasks.length > 0 && (
+              <Badge variant="secondary" className="ml-2">{tasks.length}</Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
-          {/* Financial Overview */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {/* Budget Card */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Բյուջե</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {project.budget ? project.budget.toLocaleString() + " ֏" : "-"}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Նախատեսված ընդհանուր բյուջե
-                </p>
-              </CardContent>
-            </Card>
+          {/* Key Financial Indicators */}
+          {(() => {
+            const contractsRemaining = contracts.reduce((sum, c) => {
+              if (c.status === "rejected") return sum
+              return sum + c.total
+            }, 0) - contracts.reduce((sum, c) => {
+              return sum + (c.contract_transaction || []).reduce((s, ct) => s + (ct.transaction?.amount || 0), 0)
+            }, 0)
 
-            {/* Total Contracts Card */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Պայմանագրեր</CardTitle>
-                <Receipt className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {contracts.reduce((sum, c) => sum + c.total, 0).toLocaleString()} ֏
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {contracts.length} պայմանագիր
-                </p>
-              </CardContent>
-            </Card>
+            const partnerAccountId = project.partner?.account_id
+            let txIncome = 0, txOutcome = 0
+            transactions.forEach(t => {
+              if (partnerAccountId && t.from === partnerAccountId) txIncome += t.amount
+              else txOutcome += t.amount
+            })
+            const txDifference = txIncome - txOutcome
 
-            {/* Paid Amount Card */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Վճարված</CardTitle>
-                <DollarSign className="h-4 w-4 text-green-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">
-                  {contracts
-                    .reduce((sum, c) => {
-                      const contractPaid = (c.contract_transaction || []).reduce(
-                        (total, ct) => total + (ct.transaction?.amount || 0),
-                        0
-                      )
-                      return sum + contractPaid
-                    }, 0)
-                    .toLocaleString()} ֏
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Ընդունված վճարումներ
-                </p>
-              </CardContent>
-            </Card>
+            const supplierDebt = suppliers.reduce((sum, s) => {
+              return sum + ((s.stats?.total_transfers_sum || 0) - (s.stats?.total_transactions || 0))
+            }, 0)
 
-            {/* Budget Difference Card */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Մնացորդ</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                {project.budget ? (
-                  <>
-                    <div className={`text-2xl font-bold ${
-                      project.budget - contracts.reduce((sum, c) => sum + c.total, 0) >= 0
-                        ? 'text-green-600'
-                        : 'text-red-600'
-                    }`}>
-                      {(project.budget - contracts.reduce((sum, c) => sum + c.total, 0)).toLocaleString()} ֏
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Բյուջե - Պայմանագրեր
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-2xl font-bold">-</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Բյուջե սահմանված չէ
-                    </p>
-                  </>
+            // Combine self + sub-projects when this is a parent
+            const totalBudget = (project.budget || 0) + (subProjectAggregates?.budget || 0)
+            const totalContractsRemaining = contractsRemaining + (subProjectAggregates?.contractsRemaining || 0)
+            const totalTxDifference = txDifference + (subProjectAggregates?.txDifference || 0)
+            const totalSupplierDebt = supplierDebt + (subProjectAggregates?.supplierDebt || 0)
+            const totalWarehouseStockValue = warehouseStockValue + (subProjectAggregates?.warehouseStockValue || 0)
+
+            const renderValue = (own: number, total: number, label: string, colorClass?: string) => (
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">{label}</p>
+                <p className={`text-2xl font-bold ${colorClass || ""}`}>{formatCurrency(total)}</p>
+                {subProjectAggregates && total !== own && (
+                  <p className="text-xs text-muted-foreground mt-1">սեփական՝ {formatCurrency(own)}</p>
                 )}
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            )
+
+            return (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Բյուջե</p>
+                      <p className="text-2xl font-bold">
+                        {totalBudget ? formatCurrency(totalBudget) : "-"}
+                      </p>
+                      {subProjectAggregates && project.budget !== totalBudget && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          սեփական՝ {project.budget ? formatCurrency(project.budget) : "-"}
+                        </p>
+                      )}
+                    </div>
+                    {renderValue(
+                      contractsRemaining,
+                      totalContractsRemaining,
+                      "Մնում է վճարել",
+                      totalContractsRemaining > 0 ? "text-red-600" : "text-green-600"
+                    )}
+                    {renderValue(
+                      txDifference,
+                      totalTxDifference,
+                      "Տարբերություն (գործարքներ)",
+                      totalTxDifference >= 0 ? "text-green-600" : "text-red-600"
+                    )}
+                    {renderValue(
+                      supplierDebt,
+                      totalSupplierDebt,
+                      "Մատակարարների պարտք",
+                      totalSupplierDebt > 0 ? "text-red-600" : "text-green-600"
+                    )}
+                    {renderValue(
+                      warehouseStockValue,
+                      totalWarehouseStockValue,
+                      "Պահեստի արժեք"
+                    )}
+                  </div>
+                  {subProjectAggregates && (
+                    <p className="text-xs text-muted-foreground mt-4">
+                      * Արժեքները ներառում են այս նախագծի և բոլոր ենթանախագծերի տվյալները
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })()}
+
+          {/* Project Summary Cards (Contracts by Position, Transactions In/Out, Supplier Transactions) */}
+          {(() => {
+            // Contracts by status
+            const contractsByStatus: Record<string, number> = { planned: 0, "in progress": 0, done: 0 }
+            contracts.forEach(c => {
+              if (c.status in contractsByStatus) {
+                contractsByStatus[c.status] += c.total || 0
+              }
+            })
+            // Total actually paid via contract_transaction (regardless of contract.total)
+            const totalPaid = contracts.reduce((sum, c) => {
+              return sum + (c.contract_transaction || []).reduce((s, ct) => s + (ct.transaction?.amount || 0), 0)
+            }, 0)
+
+            // Transactions: matches transactions table logic
+            // Income (+) = partner is sender (from === partner_account)
+            // Outcome (-) = everything else
+            const partnerAccountId = project.partner?.account_id
+            let income = 0, outcome = 0
+            transactions.forEach(t => {
+              if (partnerAccountId && t.from === partnerAccountId) {
+                income += t.amount
+              } else {
+                outcome += t.amount
+              }
+            })
+
+            // Supplier transactions for this project
+            const supplierAccountIds = new Set(
+              suppliers.map(s => s.account_id).filter(Boolean) as number[]
+            )
+            let supplierPaid = 0
+            transactions.forEach(t => {
+              if (supplierAccountIds.has(t.to)) supplierPaid += t.amount
+            })
+            // Debt = sum of (transfers - paid) across suppliers (matches suppliers table balance)
+            const supplierDebt = suppliers.reduce((sum, s) => {
+              return sum + ((s.stats?.total_transfers_sum || 0) - (s.stats?.total_transactions || 0))
+            }, 0)
+
+            return (
+              <div className="grid gap-4 md:grid-cols-3">
+                {/* Contracts by Status */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium">Պայմանագրերի ամփոփում</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Պլանավորված:</span>
+                        <span className="font-medium">{formatCurrency(contractsByStatus.planned)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Ընթացքի մեջ:</span>
+                        <span className="font-medium">{formatCurrency(contractsByStatus["in progress"])}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Կատարված:</span>
+                        <span className="font-medium">{formatCurrency(contractsByStatus.done)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm pt-2 border-t">
+                        <span className="font-medium">Փաստացի վճարված:</span>
+                        <span className="font-bold text-green-600">{formatCurrency(totalPaid)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium">Մնում է վճարել:</span>
+                        <span className={`font-bold ${(contractsByStatus.planned + contractsByStatus["in progress"] + contractsByStatus.done - totalPaid) > 0 ? "text-red-600" : "text-green-600"}`}>
+                          {formatCurrency(contractsByStatus.planned + contractsByStatus["in progress"] + contractsByStatus.done - totalPaid)}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Project Transactions In/Out */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium">Բոլոր գործարքներ</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Մուտքեր:</span>
+                        <span className="font-medium text-green-600">+{formatCurrency(income)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Ելքեր:</span>
+                        <span className="font-medium text-red-600">-{formatCurrency(outcome)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm pt-2 border-t">
+                        <span className="font-medium">Տարբերություն:</span>
+                        <span className={`font-bold ${income - outcome >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {formatCurrency(income - outcome)}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Supplier Transactions */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium">Մատակարարների գործարքներ</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Արդեն վճարված:</span>
+                        <span className="font-medium text-green-600">{formatCurrency(supplierPaid)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm pt-2 border-t">
+                        <span className="font-medium">Պարտք:</span>
+                        <span className={`font-bold ${supplierDebt > 0 ? "text-red-600" : "text-green-600"}`}>
+                          {formatCurrency(supplierDebt)}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )
+          })()}
 
           {/* Date Overview */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -1009,6 +1318,30 @@ export default function ProjectPage() {
                   </TableBody>
                 </Table>
               )}
+              {contracts.length > 0 && (() => {
+                const totalAmount = contracts.reduce((sum, c) => sum + c.total, 0)
+                const totalPaid = contracts.reduce((sum, c) => {
+                  return sum + (c.contract_transaction || []).reduce((s, ct) => s + (ct.transaction?.amount || 0), 0)
+                }, 0)
+                return (
+                  <div className="flex justify-end items-center gap-8 pt-4 mt-4 border-t">
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Ընդամենը գումար</p>
+                      <p className="text-lg font-bold">{formatCurrency(totalAmount)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Ընդամենը գործարքներ</p>
+                      <p className="text-lg font-bold">{formatCurrency(totalPaid)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Մնացորդ</p>
+                      <p className={`text-lg font-bold ${totalAmount - totalPaid > 0 ? "text-red-600" : "text-green-600"}`}>
+                        {formatCurrency(totalAmount - totalPaid)}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })()}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1210,7 +1543,7 @@ export default function ProjectPage() {
                   </TableHeader>
                   <TableBody>
                     {transactions.map((transaction) => {
-                      const isIncoming = transaction.to === project.partner?.account_id
+                      const isIncoming = transaction.from === project.partner?.account_id
                       return (
                         <TableRow
                           key={transaction.id}
@@ -1251,6 +1584,121 @@ export default function ProjectPage() {
                   </TableBody>
                 </Table>
               )}
+              {project.partner?.account_id && transactions.length > 0 && (() => {
+                const totals = transactions.reduce((acc, t) => {
+                  const currency = t.from_account?.currency || "amd"
+                  const isIncoming = t.from === project.partner?.account_id
+                  acc[currency] = (acc[currency] || 0) + (isIncoming ? t.amount : -t.amount)
+                  return acc
+                }, {} as Record<string, number>)
+                return (
+                  <div className="flex justify-end items-center gap-6 pt-4 mt-4 border-t">
+                    <span className="font-medium">Ընդամենը</span>
+                    <div className="flex flex-col items-end gap-1">
+                      {Object.entries(totals).map(([currency, total]) => (
+                        <span
+                          key={currency}
+                          className={`text-lg font-bold ${total >= 0 ? "text-green-600" : "text-red-600"}`}
+                        >
+                          {total >= 0 ? "+" : ""}{formatCurrency(total, currency)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Documents Tab */}
+        <TabsContent value="documents" className="space-y-4">
+          <ProjectDocuments projectId={project.id} />
+        </TabsContent>
+
+        {/* Tasks Tab */}
+        <TabsContent value="tasks" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Առաջադրանքներ</CardTitle>
+                  <CardDescription>Նախագծի հետ կապված առաջադրանքներ</CardDescription>
+                </div>
+                <Button onClick={() => { setSelectedTask(null); setIsTaskDrawerOpen(true) }}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Ավելացնել առաջադրանք
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {tasks.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CalendarIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>Առաջադրանքներ չկան</p>
+                </div>
+              ) : (() => {
+                const today = new Date()
+                today.setHours(0, 0, 0, 0)
+                const future = tasks.filter(t => new Date(t.day).setHours(0,0,0,0) >= today.getTime())
+                const past = tasks.filter(t => new Date(t.day).setHours(0,0,0,0) < today.getTime())
+                const renderRow = (t: typeof tasks[0]) => {
+                  const taskDate = new Date(t.day); taskDate.setHours(0, 0, 0, 0)
+                  const isPast = taskDate.getTime() < today.getTime()
+                  const colorClass = !isPast && !t.seen
+                    ? "text-green-700 dark:text-green-400"
+                    : !isPast && t.seen
+                    ? "text-blue-700 dark:text-blue-400"
+                    : isPast && t.seen
+                    ? "text-muted-foreground"
+                    : "text-red-700 dark:text-red-400"
+                  return (
+                    <TableRow
+                      key={t.id}
+                      className="cursor-pointer hover:bg-accent"
+                      onClick={() => { setSelectedTask(t); setIsTaskDrawerOpen(true) }}
+                    >
+                      <TableCell className="font-medium">{formatDate(t.day)}</TableCell>
+                      <TableCell className={colorClass}>{t.title}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[300px] truncate">{t.text || "-"}</TableCell>
+                      <TableCell>
+                        {t.seen ? (
+                          <Badge variant="secondary">Դիտված</Badge>
+                        ) : (
+                          <Badge variant="outline">Նոր</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                }
+                return (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[150px]">Ամսաթիվ</TableHead>
+                        <TableHead>Վերնագիր</TableHead>
+                        <TableHead>Նկարագրություն</TableHead>
+                        <TableHead className="w-[100px]">Վիճակ</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {future.map(renderRow)}
+                      {(future.length > 0 || past.length > 0) && (
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell colSpan={4} className="py-2">
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 h-px bg-primary" />
+                              <Badge variant="default" className="bg-primary">Այսօր</Badge>
+                              <div className="flex-1 h-px bg-primary" />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {past.map(renderRow)}
+                    </TableBody>
+                  </Table>
+                )
+              })()}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1306,6 +1754,14 @@ export default function ProjectPage() {
         transactionId={selectedTransactionId}
         accountId={project?.partner?.account_id || undefined}
         onUpdate={fetchTransactions}
+      />
+
+      {/* Task Drawer */}
+      <TaskDrawer
+        open={isTaskDrawerOpen}
+        onOpenChange={setIsTaskDrawerOpen}
+        task={selectedTask}
+        onSuccess={fetchTasks}
       />
     </div>
   )
