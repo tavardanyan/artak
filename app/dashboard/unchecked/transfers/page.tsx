@@ -19,6 +19,7 @@ interface Transfer {
   from_warehouse?: { name: string }
   to_warehouse?: { name: string }
   invoice?: { destination_address: string | null } | null
+  transfer_item?: Array<{ qty: number; unit_price: number; unit_vat: number }>
 }
 
 interface Warehouse {
@@ -78,7 +79,8 @@ export default function UncheckedTransfersPage() {
           id, created_at, from, to, invoice_id,
           from_warehouse:warehouse!transfer_from_fkey(name),
           to_warehouse:warehouse!transfer_to_fkey(name),
-          invoice:invoice!transfer_invoice_id_fkey(destination_address)
+          invoice:invoice!transfer_invoice_id_fkey(destination_address),
+          transfer_item(qty, unit_price, unit_vat)
         `)
         .eq("to", wid)
         .order("created_at", { ascending: false })
@@ -146,16 +148,18 @@ export default function UncheckedTransfersPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="text-xs">
-                    <TableHead className="w-[15%] py-2">Ա/թ</TableHead>
+                    <TableHead className="w-[12%] py-2">Ա/թ</TableHead>
                     <TableHead className="w-[20%] py-2">Որտեղից</TableHead>
-                    <TableHead className="w-[25%] py-2">Հասցե</TableHead>
-                    <TableHead className="w-[30%] py-2">Նոր նշանակում</TableHead>
-                    <TableHead className="w-[10%] py-2"></TableHead>
+                    <TableHead className="w-[22%] py-2">Հասցե</TableHead>
+                    <TableHead className="w-[14%] py-2 text-right">Ընդամենը</TableHead>
+                    <TableHead className="w-[24%] py-2">Նոր նշանակում</TableHead>
+                    <TableHead className="w-[8%] py-2"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {transfers.map((transfer) => {
                     const isProcessing = processingTransfers.has(transfer.id)
+                    const total = (transfer.transfer_item || []).reduce((s, ti) => s + (ti.qty || 0) * ((ti.unit_price || 0) + (ti.unit_vat || 0)), 0)
                     return (
                       <TableRow key={transfer.id} className="text-xs">
                         <TableCell className="py-2">{formatDate(transfer.created_at)}</TableCell>
@@ -171,6 +175,7 @@ export default function UncheckedTransfersPage() {
                         >
                           {transfer.invoice?.destination_address || "-"}
                         </TableCell>
+                        <TableCell className="py-2 text-right font-medium">{total.toLocaleString()} ֏</TableCell>
                         <TableCell className="py-2">
                           <Select
                             value={selectedWarehouses[transfer.id]?.toString() || defaultWarehouse?.toString() || ""}
@@ -193,6 +198,15 @@ export default function UncheckedTransfersPage() {
                   })}
                 </TableBody>
               </Table>
+              {transfers.length > 0 && (() => {
+                const sumTotal = transfers.reduce((s, t) => s + (t.transfer_item || []).reduce((ss, ti) => ss + (ti.qty || 0) * ((ti.unit_price || 0) + (ti.unit_vat || 0)), 0), 0)
+                return (
+                  <div className="flex items-center justify-end gap-3 pt-3 mt-2 border-t text-sm">
+                    <span className="text-muted-foreground">Ընդամենը այս էջում՝</span>
+                    <span className="font-bold">{sumTotal.toLocaleString()} ֏</span>
+                  </div>
+                )
+              })()}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4">
                   <div className="text-xs text-muted-foreground">Էջ {currentPage} / {totalPages}</div>

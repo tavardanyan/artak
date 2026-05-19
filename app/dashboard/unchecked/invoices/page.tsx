@@ -15,6 +15,8 @@ interface Invoice {
   seen: boolean
   supplier_tin: string | null
   total: number | null
+  total_value: number | null
+  total_vat_amount: number | null
   serial_no: string | null
   issued_at: string | null
   type: string | null
@@ -51,7 +53,7 @@ export default function UncheckedInvoicesPage() {
       const { data, error } = await supabase
         .from("invoice")
         .select(`
-          id, created_at, seen, supplier_tin, total, serial_no, issued_at, type,
+          id, created_at, seen, supplier_tin, total, total_value, total_vat_amount, serial_no, issued_at, type,
           supplier:partner!invoice_supplier_tin_fkey(name, tin)
         `)
         .eq("seen", false)
@@ -116,10 +118,13 @@ export default function UncheckedInvoicesPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="text-xs">
-                    <TableHead className="w-[30%] py-2">Համար</TableHead>
-                    <TableHead className="w-[25%] py-2">Ա/թ</TableHead>
-                    <TableHead className="w-[30%] py-2">Մատակարար</TableHead>
-                    <TableHead className="w-[15%] py-2"></TableHead>
+                    <TableHead className="w-[18%] py-2">Համար</TableHead>
+                    <TableHead className="w-[15%] py-2">Ա/թ</TableHead>
+                    <TableHead className="w-[22%] py-2">Մատակարար</TableHead>
+                    <TableHead className="w-[12%] py-2 text-right">Արժեք</TableHead>
+                    <TableHead className="w-[12%] py-2 text-right">ԱԱՀ</TableHead>
+                    <TableHead className="w-[12%] py-2 text-right">Ընդամենը</TableHead>
+                    <TableHead className="w-[9%] py-2"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -130,6 +135,15 @@ export default function UncheckedInvoicesPage() {
                         <TableCell className="font-medium py-2">{invoice.serial_no || invoice.id.substring(0, 8)}</TableCell>
                         <TableCell className="py-2">{formatDate(invoice.issued_at || invoice.created_at)}</TableCell>
                         <TableCell className="py-2">{invoice.supplier?.name || invoice.supplier_tin || "-"}</TableCell>
+                        <TableCell className="py-2 text-right">
+                          {invoice.total_value != null ? `${invoice.total_value.toLocaleString()} ֏` : "-"}
+                        </TableCell>
+                        <TableCell className="py-2 text-right text-muted-foreground">
+                          {invoice.total_vat_amount != null ? `${invoice.total_vat_amount.toLocaleString()} ֏` : "-"}
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-medium">
+                          {invoice.total != null ? `${invoice.total.toLocaleString()} ֏` : "-"}
+                        </TableCell>
                         <TableCell className="py-2">
                           <Button size="sm" onClick={(e) => { e.stopPropagation(); handleMarkInvoiceSeen(invoice.id) }} disabled={isProcessing} className="h-7 text-xs">
                             {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Eye className="h-3 w-3 mr-1" />Դիտված</>}
@@ -140,6 +154,20 @@ export default function UncheckedInvoicesPage() {
                   })}
                 </TableBody>
               </Table>
+              <div className="flex items-center justify-end gap-6 pt-3 mt-2 border-t text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Արժեք՝</span>
+                  <span className="font-medium">{invoices.reduce((s, inv) => s + (inv.total_value || 0), 0).toLocaleString()} ֏</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">ԱԱՀ՝</span>
+                  <span className="font-medium">{invoices.reduce((s, inv) => s + (inv.total_vat_amount || 0), 0).toLocaleString()} ֏</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Ընդամենը՝</span>
+                  <span className="font-bold">{invoices.reduce((s, inv) => s + (inv.total || 0), 0).toLocaleString()} ֏</span>
+                </div>
+              </div>
               {totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4">
                   <div className="text-xs text-muted-foreground">Էջ {currentPage} / {totalPages}</div>

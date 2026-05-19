@@ -198,11 +198,11 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <a href="/dashboard">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                  <LayoutDashboard className="size-4" />
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary p-1">
+                  <img src="/logo.svg" alt="ԼՈՒՍԻ-ԱՐԵԳ" className="size-full object-contain" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">Ադմին Փանել</span>
+                  <span className="truncate font-semibold">ԼՈՒՍԻ-ԱՐԵԳ</span>
                   <span className="truncate text-xs">Կառավարման համակարգ</span>
                 </div>
               </a>
@@ -356,7 +356,6 @@ export function AppSidebar() {
                   className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                 >
                   <Avatar className="h-8 w-8 rounded-lg">
-                    <AvatarImage src="/avatars/01.png" alt="Admin" />
                     <AvatarFallback className="rounded-lg">AD</AvatarFallback>
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">

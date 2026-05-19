@@ -129,7 +129,7 @@ export default function PartnersPage() {
             total_transactions: 0,
           }
 
-          // Get transfer statistics if partner has a warehouse
+          // Get transfer statistics if partner has a warehouse (ignore ximichit=true)
           if (partner.warehouse_id) {
             // Get all transfers FROM this partner's warehouse
             const { data: transfers } = await supabase
@@ -141,6 +141,7 @@ export default function PartnersPage() {
                 transfer_item(qty, unit_price, unit_vat)
               `)
               .eq("from", partner.warehouse_id)
+              .or("ximichit.is.null,ximichit.eq.false")
 
             if (transfers) {
               stats.total_transfers = transfers.length

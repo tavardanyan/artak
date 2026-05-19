@@ -39,6 +39,7 @@ import { useToast } from "@/hooks/use-toast"
 import { ArrowRight, ArrowLeft, Package, TruckIcon, Plus, Trash2, Search, ChevronsUpDown, Check, Scissors } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { SplitTransferModal } from "@/components/split-transfer-modal"
+import { XimichitModal } from "@/components/ximichit-modal"
 
 interface Transfer {
   id: number
@@ -48,6 +49,7 @@ interface Transfer {
   delivered_at: string | null
   acepted_at: string | null
   rejected_at: string | null
+  ximichit?: boolean
   invoice_id: string | null
   from_warehouse?: { name: string }
   to_warehouse?: { name: string }
@@ -149,6 +151,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [isItemDrawerOpen, setIsItemDrawerOpen] = useState(false)
   const [isCreateTransferDrawerOpen, setIsCreateTransferDrawerOpen] = useState(false)
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
+  const [isXimichitModalOpen, setIsXimichitModalOpen] = useState(false)
   const [fromWarehouseStock, setFromWarehouseStock] = useState<Record<number, number>>({})
   const [selectedItemIds, setSelectedItemIds] = useState<Set<number>>(new Set())
   const [fromWhTab, setFromWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
@@ -871,7 +874,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                         className="cursor-pointer hover:bg-accent"
                         onClick={() => handleTransferClick(transfer)}
                       >
-                        <TableCell className="font-medium">#{transfer.id}</TableCell>
+                        <TableCell className={cn("font-medium", transfer.ximichit && "text-red-600")}>#{transfer.id}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             {transfer.from === warehouseId ? (
@@ -1173,39 +1176,51 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
             )}
 
             {/* Action Buttons */}
-            {canModifyTransfer(selectedTransfer) && (
-              <div className="flex gap-2 pb-4 border-b">
-                {!selectedTransfer?.delivered_at && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => selectedTransfer && handleSetPending(selectedTransfer.id)}
-                  >
-                    Նշանակել որպես ընթացիկ
-                  </Button>
+            {selectedTransfer && (
+              <div className="flex flex-wrap gap-2 pb-4 border-b">
+                {canModifyTransfer(selectedTransfer) && (
+                  <>
+                    {!selectedTransfer.delivered_at && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSetPending(selectedTransfer.id)}
+                      >
+                        Նշանակել որպես ընթացիկ
+                      </Button>
+                    )}
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => handleAccept(selectedTransfer.id)}
+                    >
+                      Ընդունել
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleReject(selectedTransfer.id)}
+                    >
+                      Մերժել
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsSplitModalOpen(true)}
+                    >
+                      <Scissors className="h-4 w-4 mr-2" />
+                      Բաժանել
+                    </Button>
+                  </>
                 )}
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => selectedTransfer && handleAccept(selectedTransfer.id)}
-                >
-                  Ընդունել
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => selectedTransfer && handleReject(selectedTransfer.id)}
-                >
-                  Մերժել
-                </Button>
                 <div className="flex-1" />
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setIsSplitModalOpen(true)}
+                  onClick={() => setIsXimichitModalOpen(true)}
+                  disabled={selectedTransfer.ximichit}
                 >
-                  <Scissors className="h-4 w-4 mr-2" />
-                  Բաժանել
+                  {selectedTransfer.ximichit ? "Խիմիչիտ է" : "Խիմիչիտ անել"}
                 </Button>
               </div>
             )}
@@ -1648,6 +1663,23 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
           currentTo={selectedTransfer.to}
           invoiceId={selectedTransfer.invoice_id}
           onSplitComplete={() => {
+            setIsTransferDrawerOpen(false)
+            fetchTransfers()
+            fetchWarehouseItems()
+          }}
+        />
+      )}
+
+      {/* Ximichit Modal */}
+      {selectedTransfer && (
+        <XimichitModal
+          open={isXimichitModalOpen}
+          onOpenChange={setIsXimichitModalOpen}
+          transferId={selectedTransfer.id}
+          transferItems={transferItems.map(ti => ({ item_id: ti.item_id, qty: ti.qty, unit_price: ti.unit_price, unit_vat: ti.unit_vat }))}
+          fromWarehouseId={selectedTransfer.from}
+          invoiceId={selectedTransfer.invoice_id}
+          onSuccess={() => {
             setIsTransferDrawerOpen(false)
             fetchTransfers()
             fetchWarehouseItems()

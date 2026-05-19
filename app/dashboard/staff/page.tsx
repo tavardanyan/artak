@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast"
 import { CreatePersonDrawer } from "@/components/create-person-drawer"
 import { EditPersonDrawer } from "@/components/edit-person-drawer"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { formatPhone } from "@/lib/utils/phone-format"
 import {
   Table,
   TableBody,
@@ -65,13 +66,13 @@ function StaffCard({ staff, onClick }: { staff: Person; onClick: () => void }) {
             {staff.phone && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-muted-foreground" />
-                <span>{staff.phone}</span>
+                <span>{formatPhone(staff.phone)}</span>
               </div>
             )}
             {staff.second_phone && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-muted-foreground" />
-                <span>{staff.second_phone}</span>
+                <span>{formatPhone(staff.second_phone)}</span>
               </div>
             )}
             {staff.email && (
@@ -234,9 +235,9 @@ export default function StaffPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Անուն</TableHead>
+                  <TableHead>Մականուն</TableHead>
                   <TableHead>Պաշտոն</TableHead>
                   <TableHead>Հեռախոս</TableHead>
-                  <TableHead>Email</TableHead>
                   <TableHead>Հասցե</TableHead>
                 </TableRow>
               </TableHeader>
@@ -252,10 +253,10 @@ export default function StaffPage() {
                         setIsEditDrawerOpen(true)
                       }}
                     >
-                      <TableCell className="font-medium">{fullName}</TableCell>
+                      <TableCell>{fullName}</TableCell>
+                      <TableCell className="font-bold">{person.nickname || "-"}</TableCell>
                       <TableCell>{person.position || "-"}</TableCell>
-                      <TableCell>{person.phone || "-"}</TableCell>
-                      <TableCell>{person.email || "-"}</TableCell>
+                      <TableCell>{formatPhone(person.phone)}</TableCell>
                       <TableCell>{person.address || "-"}</TableCell>
                     </TableRow>
                   )

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Phone, Mail, MapPin, Plus, Loader2, Handshake } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { formatPhone } from "@/lib/utils/phone-format"
 import { CreatePersonDrawer } from "@/components/create-person-drawer"
 import { EditPersonDrawer } from "@/components/edit-person-drawer"
 import { EditPartnerDrawer } from "@/components/edit-partner-drawer"
@@ -87,13 +88,13 @@ function ContactCard({
             {contact.phone && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-muted-foreground" />
-                <span>{contact.phone}</span>
+                <span>{formatPhone(contact.phone)}</span>
               </div>
             )}
             {contact.second_phone && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-muted-foreground" />
-                <span>{contact.second_phone}</span>
+                <span>{formatPhone(contact.second_phone)}</span>
               </div>
             )}
             {contact.email && (
