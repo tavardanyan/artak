@@ -27,6 +27,13 @@ import { useRouter } from "next/navigation"
 interface Partner {
   id: number
   name: string
+  warehouse_id: number | null
+}
+
+interface PartnerWarehouse {
+  id: number
+  name: string
+  address: string
 }
 
 interface CreateProjectDrawerProps {
@@ -48,6 +55,8 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
   const [endDate, setEndDate] = useState("")
   const [agreementDate, setAgreementDate] = useState("")
   const [budget, setBudget] = useState("")
+  const [partnerWarehouses, setPartnerWarehouses] = useState<PartnerWarehouse[]>([])
+  const [warehouseChoice, setWarehouseChoice] = useState<string>("") // warehouse id as string, or "new"
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const supabase = createClient()
@@ -73,7 +82,7 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
   const fetchPartners = async () => {
     const { data, error } = await supabase
       .from("partner")
-      .select("id, name")
+      .select("id, name, warehouse_id")
       .eq("type", "customer")
       .order("name")
 
@@ -90,6 +99,41 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
     setPartners(data || [])
   }
 
+  // Fetch warehouses available for the selected partner: partner.warehouse_id + warehouses used by other projects of this partner
+  useEffect(() => {
+    if (!partnerId) {
+      setPartnerWarehouses([])
+      setWarehouseChoice("")
+      return
+    }
+    const fetchWh = async () => {
+      const partner = partners.find(p => p.id.toString() === partnerId)
+      const ids = new Set<number>()
+      if (partner?.warehouse_id) ids.add(partner.warehouse_id)
+      const { data: projWh } = await supabase
+        .from("project")
+        .select("warehouse_id")
+        .eq("partner_id", parseInt(partnerId))
+        .not("warehouse_id", "is", null)
+      ;(projWh || []).forEach((p: any) => p.warehouse_id && ids.add(p.warehouse_id))
+      if (ids.size === 0) {
+        setPartnerWarehouses([])
+        setWarehouseChoice("new")
+        return
+      }
+      const { data: whs } = await supabase
+        .from("warehouse")
+        .select("id, name, address")
+        .in("id", Array.from(ids))
+        .order("name")
+      setPartnerWarehouses(whs || [])
+      // Default to first existing warehouse
+      if (whs && whs.length > 0) setWarehouseChoice(whs[0].id.toString())
+      else setWarehouseChoice("new")
+    }
+    fetchWh()
+  }, [partnerId, partners])
+
   const handleSubmit = async () => {
     // Validation
     if (!name || !code || !partnerId) {
@@ -100,10 +144,37 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
       })
       return
     }
+    if (!warehouseChoice) {
+      toast({
+        title: "Սխալ",
+        description: "Ընտրեք պահեստ կամ ստեղծեք նորը",
+        variant: "destructive",
+      })
+      return
+    }
 
     setIsSubmitting(true)
 
     try {
+      // Resolve warehouse_id: either reuse an existing one or create a new one for this partner
+      let warehouseId: number | null = null
+      if (warehouseChoice === "new") {
+        const partner = partners.find(p => p.id.toString() === partnerId)
+        const { data: newWh, error: whErr } = await supabase
+          .from("warehouse")
+          .insert({
+            name: `${partner?.name || ""} - ${name}`.trim(),
+            address: address || "",
+            type: "main",
+          })
+          .select("id")
+          .single()
+        if (whErr) throw whErr
+        warehouseId = newWh.id
+      } else {
+        warehouseId = parseInt(warehouseChoice)
+      }
+
       const { data, error } = await supabase
         .from("project")
         .insert({
@@ -112,6 +183,7 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
           type,
           address: address || null,
           partner_id: parseInt(partnerId),
+          warehouse_id: warehouseId,
           parent_project: parentProjectId === "none" ? null : parseInt(parentProjectId),
           start: startDate ? new Date(startDate).toISOString() : null,
           end: endDate ? new Date(endDate).toISOString() : null,
@@ -147,6 +219,8 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
       setAgreementDate("")
       setBudget("")
       setParentProjectId("none")
+      setWarehouseChoice("")
+      setPartnerWarehouses([])
 
       onOpenChange(false)
 
@@ -265,6 +339,32 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
               onChange={(e) => setAddress(e.target.value)}
             />
           </div>
+
+          {partnerId && (
+            <div className="space-y-2">
+              <Label htmlFor="warehouse">
+                Պահեստ <span className="text-destructive">*</span>
+              </Label>
+              <Select value={warehouseChoice} onValueChange={setWarehouseChoice}>
+                <SelectTrigger id="warehouse">
+                  <SelectValue placeholder="Ընտրեք պահեստ" />
+                </SelectTrigger>
+                <SelectContent>
+                  {partnerWarehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.id.toString()}>
+                      {w.name}{w.address ? ` · ${w.address}` : ""}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="new">+ Ստեղծել նոր պահեստ</SelectItem>
+                </SelectContent>
+              </Select>
+              {warehouseChoice === "new" && (
+                <p className="text-xs text-muted-foreground">
+                  Նոր պահեստի հասցեն կլինի՝ {address || <em>(լրացրեք նախագծի հասցեն)</em>}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="agreement-date">Պայմանագրի ամսաթիվ</Label>

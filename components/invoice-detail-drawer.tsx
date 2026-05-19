@@ -76,6 +76,8 @@ interface InvoiceItem {
 export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDetailDrawerProps) {
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null)
   const [items, setItems] = useState<InvoiceItem[]>([])
+  const [supplierName, setSupplierName] = useState<string | null>(null)
+  const [buyerName, setBuyerName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const { toast } = useToast()
@@ -101,6 +103,23 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
       if (invoiceError) throw invoiceError
 
       setInvoice(invoiceData)
+
+      // Fetch partner names for supplier and buyer TINs
+      const tins: string[] = []
+      if (invoiceData?.supplier_tin) tins.push(invoiceData.supplier_tin)
+      if (invoiceData?.buyer_tin) tins.push(invoiceData.buyer_tin)
+      if (tins.length > 0) {
+        const { data: partners } = await supabase
+          .from("partner")
+          .select("tin, name")
+          .in("tin", tins)
+        const byTin = new Map((partners || []).map((p: any) => [p.tin, p.name]))
+        setSupplierName(invoiceData.supplier_tin ? byTin.get(invoiceData.supplier_tin) ?? null : null)
+        setBuyerName(invoiceData.buyer_tin ? byTin.get(invoiceData.buyer_tin) ?? null : null)
+      } else {
+        setSupplierName(null)
+        setBuyerName(null)
+      }
 
       // Fetch invoice items
       const { data: itemsData, error: itemsError } = await supabase
@@ -211,8 +230,12 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
                     <h4 className="font-medium mb-2">Մատակարար</h4>
                     <div className="space-y-2">
                       <div>
+                        <p className="text-sm font-medium text-muted-foreground">Անվանում</p>
+                        <p className="text-base mt-1">{supplierName || "-"}</p>
+                      </div>
+                      <div>
                         <p className="text-sm font-medium text-muted-foreground">ՀՎՀՀ</p>
-                        <p className="text-base mt-1">{invoice.supplier_tin || "-"}</p>
+                        <p className="text-base mt-1 font-mono">{invoice.supplier_tin || "-"}</p>
                       </div>
                     </div>
                   </div>
@@ -220,8 +243,12 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
                     <h4 className="font-medium mb-2">Ստացող</h4>
                     <div className="space-y-2">
                       <div>
+                        <p className="text-sm font-medium text-muted-foreground">Անվանում</p>
+                        <p className="text-base mt-1">{buyerName || "-"}</p>
+                      </div>
+                      <div>
                         <p className="text-sm font-medium text-muted-foreground">ՀՎՀՀ</p>
-                        <p className="text-base mt-1">{invoice.buyer_tin || "-"}</p>
+                        <p className="text-base mt-1 font-mono">{invoice.buyer_tin || "-"}</p>
                       </div>
                     </div>
                   </div>

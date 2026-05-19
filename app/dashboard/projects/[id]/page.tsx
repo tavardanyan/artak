@@ -64,6 +64,7 @@ interface Project {
   type: string
   address: string | null
   partner_id: number
+  warehouse_id: number | null
   parent_project: number | null
   start: string | null
   end: string | null
@@ -71,6 +72,7 @@ interface Project {
   budget: number | null
   status: string
   created_at: string
+  warehouse?: { id: number; name: string }
   partner?: {
     id: number
     name: string
@@ -281,13 +283,15 @@ export default function ProjectPage() {
   const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null)
   const [internalAccountIds, setInternalAccountIds] = useState<Set<number>>(new Set())
   const [warehouseStockValue, setWarehouseStockValue] = useState(0)
+  const [transferVat, setTransferVat] = useState({ incoming: 0, outgoing: 0 })
   const [tasks, setTasks] = useState<Array<{ id: number; title: string; text: string | null; project_id: number | null; day: string; seen: boolean }>>([])
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<any>(null)
   const [subProjectAggregates, setSubProjectAggregates] = useState<{
     budget: number
     contractsRemaining: number
-    txDifference: number
+    txIncome: number
+    txOutcome: number
     supplierDebt: number
     warehouseStockValue: number
   } | null>(null)
@@ -307,8 +311,31 @@ export default function ProjectPage() {
       fetchWarehouseStockValue()
       fetchSubProjectAggregates()
       fetchTasks()
+      fetchTransferVat()
     }
   }, [project])
+
+  const fetchTransferVat = async () => {
+    if (!project?.warehouse_id) {
+      setTransferVat({ incoming: 0, outgoing: 0 })
+      return
+    }
+    const wid = project.warehouse_id
+    const { data } = await supabase
+      .from("transfer")
+      .select(`id, from, to, transfer_item(qty, unit_vat)`)
+      .or(`from.eq.${wid},to.eq.${wid}`)
+      .not("acepted_at", "is", null)
+      .is("rejected_at", null)
+
+    let incoming = 0, outgoing = 0
+    ;(data || []).forEach((t: any) => {
+      const vat = (t.transfer_item || []).reduce((s: number, ti: any) => s + (ti.qty || 0) * (ti.unit_vat || 0), 0)
+      if (t.to === wid) incoming += vat
+      else if (t.from === wid) outgoing += vat
+    })
+    setTransferVat({ incoming, outgoing })
+  }
 
   const fetchTasks = async () => {
     if (!project?.id) return
@@ -330,6 +357,7 @@ export default function ProjectPage() {
       .select(`
         id,
         budget,
+        warehouse_id,
         partner:partner_id(account_id, warehouse_id)
       `)
       .eq("parent_project", project.id)
@@ -339,7 +367,7 @@ export default function ProjectPage() {
       return
     }
 
-    let budget = 0, contractsRemaining = 0, txDifference = 0, supplierDebt = 0, warehouseStockValue = 0
+    let budget = 0, contractsRemaining = 0, txIncome = 0, txOutcome = 0, supplierDebt = 0, warehouseStockValue = 0
 
     for (const sub of subs as any[]) {
       budget += sub.budget || 0
@@ -369,16 +397,16 @@ export default function ProjectPage() {
         .eq("project_id", sub.id)
       const partnerAccId = sub.partner?.account_id
       ;(subTxs || []).forEach((t: any) => {
-        if (partnerAccId && t.from === partnerAccId) txDifference += t.amount
-        else txDifference -= t.amount
+        if (partnerAccId && t.from === partnerAccId) txIncome += t.amount
+        else txOutcome += t.amount
       })
 
       // Supplier debt for sub project: get suppliers (transfers in) and payments
-      if (sub.partner?.warehouse_id) {
+      if (sub.warehouse_id) {
         const { data: subTransfers } = await supabase
           .from("transfer")
           .select(`id, from, transfer_item(qty, unit_amount)`)
-          .eq("to", sub.partner.warehouse_id)
+          .eq("to", sub.warehouse_id)
           .not("acepted_at", "is", null)
           .is("rejected_at", null)
         // Group by from warehouse
@@ -413,18 +441,18 @@ export default function ProjectPage() {
       }
 
       // Warehouse stock value
-      if (sub.partner?.warehouse_id) {
+      if (sub.warehouse_id) {
         const { data: stockData } = await supabase
           .from("warehouse_item_stock")
           .select("item_id, stock_qty")
-          .eq("warehouse_id", sub.partner.warehouse_id)
+          .eq("warehouse_id", sub.warehouse_id)
         for (const s of stockData || []) {
           const { data: tis } = await supabase
             .from("transfer_item")
             .select("unit_amount, transfer:transfer_id(acepted_at, to, from)")
             .eq("item_id", s.item_id)
             .not("transfer.acepted_at", "is", null)
-            .or(`to.eq.${sub.partner.warehouse_id},from.eq.${sub.partner.warehouse_id}`, { foreignTable: "transfer" })
+            .or(`to.eq.${sub.warehouse_id},from.eq.${sub.warehouse_id}`, { foreignTable: "transfer" })
           const valid = (tis || []).map((t: any) => t.unit_amount).filter((p: any) => p != null)
           const avg = valid.length > 0 ? valid.reduce((a: number, b: number) => a + b, 0) / valid.length : 0
           warehouseStockValue += avg * s.stock_qty
@@ -432,15 +460,15 @@ export default function ProjectPage() {
       }
     }
 
-    setSubProjectAggregates({ budget, contractsRemaining, txDifference, supplierDebt, warehouseStockValue })
+    setSubProjectAggregates({ budget, contractsRemaining, txIncome, txOutcome, supplierDebt, warehouseStockValue })
   }
 
   const fetchWarehouseStockValue = async () => {
-    if (!project?.partner?.warehouse_id) {
+    if (!project?.warehouse_id) {
       setWarehouseStockValue(0)
       return
     }
-    const warehouseId = project.partner.warehouse_id
+    const warehouseId = project.warehouse_id
     const { data: stockData } = await supabase
       .from("warehouse_item_stock")
       .select("item_id, stock_qty")
@@ -478,6 +506,7 @@ export default function ProjectPage() {
         .from("project")
         .select(`
           *,
+          warehouse:warehouse_id(id, name),
           partner:partner_id(
             *,
             warehouse:warehouse_id(id, name),
@@ -615,7 +644,7 @@ export default function ProjectPage() {
   }
 
   const fetchSuppliers = async () => {
-    if (!project?.id || !project?.partner?.warehouse_id) return
+    if (!project?.id || !project?.warehouse_id) return
 
     try {
       // Get all suppliers (partners of type supplier)
@@ -649,7 +678,7 @@ export default function ProjectPage() {
           }
 
           // Get transfers FROM supplier's warehouse TO project's warehouse
-          if (supplier.warehouse_id && project.partner?.warehouse_id) {
+          if (supplier.warehouse_id && project.warehouse_id) {
             const { data: transfers } = await supabase
               .from("transfer")
               .select(`
@@ -659,7 +688,7 @@ export default function ProjectPage() {
                 transfer_item(qty, unit_price, unit_vat)
               `)
               .eq("from", supplier.warehouse_id)
-              .eq("to", project.partner.warehouse_id)
+              .eq("to", project.warehouse_id)
 
             if (transfers) {
               stats.total_transfers = transfers.length
@@ -829,8 +858,8 @@ export default function ProjectPage() {
 
             // Combine self + sub-projects when this is a parent
             const totalBudget = (project.budget || 0) + (subProjectAggregates?.budget || 0)
-            const totalContractsRemaining = contractsRemaining + (subProjectAggregates?.contractsRemaining || 0)
-            const totalTxDifference = txDifference + (subProjectAggregates?.txDifference || 0)
+            const totalTxIncome = txIncome + (subProjectAggregates?.txIncome || 0)
+            const totalTxOutcome = txOutcome + (subProjectAggregates?.txOutcome || 0)
             const totalSupplierDebt = supplierDebt + (subProjectAggregates?.supplierDebt || 0)
             const totalWarehouseStockValue = warehouseStockValue + (subProjectAggregates?.warehouseStockValue || 0)
 
@@ -847,7 +876,7 @@ export default function ProjectPage() {
             return (
               <Card>
                 <CardContent className="pt-6">
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                     <div>
                       <p className="text-sm text-muted-foreground mb-1">Բյուջե</p>
                       <p className="text-2xl font-bold">
@@ -860,22 +889,16 @@ export default function ProjectPage() {
                       )}
                     </div>
                     {renderValue(
-                      contractsRemaining,
-                      totalContractsRemaining,
-                      "Մնում է վճարել",
-                      totalContractsRemaining > 0 ? "text-red-600" : "text-green-600"
+                      txIncome,
+                      totalTxIncome,
+                      "Մուտքեր",
+                      "text-green-600"
                     )}
                     {renderValue(
-                      txDifference,
-                      totalTxDifference,
-                      "Տարբերություն (գործարքներ)",
-                      totalTxDifference >= 0 ? "text-green-600" : "text-red-600"
-                    )}
-                    {renderValue(
-                      supplierDebt,
-                      totalSupplierDebt,
-                      "Մատակարարների պարտք",
-                      totalSupplierDebt > 0 ? "text-red-600" : "text-green-600"
+                      txOutcome + supplierDebt,
+                      totalTxOutcome + totalSupplierDebt,
+                      "Ծախսեր",
+                      "text-red-600"
                     )}
                     {renderValue(
                       warehouseStockValue,
@@ -968,32 +991,46 @@ export default function ProjectPage() {
                   </CardContent>
                 </Card>
 
-                {/* Project Transactions In/Out */}
+                {/* Incomings List */}
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium">Բոլոր գործարքներ</CardTitle>
+                    <CardTitle className="text-sm font-medium">Մուտքերի ցանկ</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Մուտքեր:</span>
-                        <span className="font-medium text-green-600">+{formatCurrency(income)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Ելքեր:</span>
-                        <span className="font-medium text-red-600">-{formatCurrency(outcome)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm pt-2 border-t">
-                        <span className="font-medium">Տարբերություն:</span>
-                        <span className={`font-bold ${income - outcome >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {formatCurrency(income - outcome)}
-                        </span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const incomingsList = transactions
+                        .filter(t => partnerAccountId && t.from === partnerAccountId)
+                        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                      if (incomingsList.length === 0) {
+                        return <p className="text-sm text-muted-foreground py-2">Մուտքեր չկան</p>
+                      }
+                      return (
+                        <div className="space-y-2 max-h-[180px] overflow-y-auto">
+                          {incomingsList.map((t) => (
+                            <div
+                              key={t.id}
+                              className="flex items-start justify-between gap-2 text-sm cursor-pointer hover:bg-accent/50 rounded px-1 py-1"
+                              onClick={() => {
+                                setSelectedTransactionId(t.id)
+                                setIsTransactionDrawerOpen(true)
+                              }}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs text-muted-foreground">{formatDate(t.created_at)}</p>
+                                {t.note && <p className="text-xs truncate">{t.note}</p>}
+                              </div>
+                              <span className="font-medium text-green-600 whitespace-nowrap">
+                                +{formatCurrency(t.amount, t.from_account?.currency || "amd")}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
                   </CardContent>
                 </Card>
 
-                {/* Supplier Transactions */}
+                {/* Supplier Transactions - commented out
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium">Մատակարարների գործարքներ</CardTitle>
@@ -1011,6 +1048,17 @@ export default function ProjectPage() {
                         </span>
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+                */}
+
+                {/* VAT */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium">ԱԱՀ</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-2xl font-bold">{formatCurrency(transferVat.incoming)}</p>
                   </CardContent>
                 </Card>
               </div>
@@ -1143,72 +1191,6 @@ export default function ProjectPage() {
             </Card>
           </div>
 
-          {/* Outgoing Transactions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Ելքային գործարքներ</CardTitle>
-              <CardDescription>Վերջին ելքային գործարքների ցանկ</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {transactions.filter(t => t.from === project.partner?.account_id).length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <ArrowUpRight className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
-                  <p className="text-muted-foreground">Ելքային գործարքներ չկան</p>
-                </div>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {transactions
-                    .filter(t => t.from === project.partner?.account_id)
-                    .slice(0, 6)
-                    .map((transaction) => (
-                      <Card key={transaction.id} className="hover:bg-accent/50 transition-colors">
-                        <CardContent className="pt-6">
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <ArrowUpRight className="h-4 w-4 text-red-500" />
-                                <span className="text-sm font-medium text-muted-foreground">Ելք</span>
-                              </div>
-                              <Badge variant="outline">
-                                {new Date(transaction.created_at).toLocaleDateString('hy-AM')}
-                              </Badge>
-                            </div>
-
-                            <div className="flex items-baseline justify-between">
-                              <span className="text-2xl font-bold">
-                                {transaction.amount.toLocaleString('hy-AM')}
-                              </span>
-                              <span className="text-sm font-medium text-muted-foreground">
-                                {transaction.to_account?.currency.toUpperCase()}
-                              </span>
-                            </div>
-
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-muted-foreground">Ից:</span>
-                                <span className="font-medium">{transaction.from_account?.name}</span>
-                              </div>
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-muted-foreground">Դեպի:</span>
-                                <span className="font-medium">{transaction.to_account?.name}</span>
-                              </div>
-                            </div>
-
-                            {transaction.note && (
-                              <div className="pt-2 border-t">
-                                <p className="text-sm text-muted-foreground line-clamp-2">
-                                  {transaction.note}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </TabsContent>
 
         {/* Contracts Tab */}
@@ -1392,17 +1374,17 @@ export default function ProjectPage() {
 
         {/* Warehouse Tab */}
         <TabsContent value="warehouse" className="space-y-4">
-          {!project.partner?.warehouse_id ? (
+          {!project.warehouse_id ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                 <Package className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
-                <p className="text-muted-foreground">Գործընկերն իր պահեստ չունի</p>
+                <p className="text-muted-foreground">Նախագիծը պահեստ չունի</p>
               </CardContent>
             </Card>
           ) : (
             <WarehouseContent
-              warehouseId={project.partner.warehouse_id}
-              warehouseName={project.partner.warehouse?.name || "Պահեստ"}
+              warehouseId={project.warehouse_id}
+              warehouseName={project.warehouse?.name || "Պահեստ"}
             />
           )}
         </TabsContent>
@@ -1742,7 +1724,7 @@ export default function ProjectPage() {
           partnerId={selectedPartnerId}
           onSuccess={fetchSuppliers}
           projectId={project.id}
-          projectWarehouseId={project.partner?.warehouse_id}
+          projectWarehouseId={project.warehouse_id}
           projectAccountId={project.partner?.account_id}
         />
       )}

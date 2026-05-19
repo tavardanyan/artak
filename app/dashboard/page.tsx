@@ -293,10 +293,10 @@ export default function DashboardPage() {
   const fetchProjectsAggregate = async () => {
     setProjectsAggregateLoading(true)
     try {
-      // Fetch all projects (including sub-projects) with their partner info
+      // Fetch all projects (including sub-projects) with their warehouse and partner info
       const { data: projects } = await supabase
         .from("project")
-        .select(`id, budget, partner:partner_id(account_id, warehouse_id)`)
+        .select(`id, budget, warehouse_id, partner:partner_id(account_id)`)
 
       if (!projects) {
         setProjectsAggregate(null)
@@ -347,12 +347,12 @@ export default function DashboardPage() {
           else txOutcome += t.amount
         })
 
-        // Suppliers + their debt + paid
-        if (p.partner?.warehouse_id) {
+        // Suppliers + their debt + paid (filtered by project's warehouse)
+        if (p.warehouse_id) {
           const { data: subTransfers } = await supabase
             .from("transfer")
             .select(`id, from, transfer_item(qty, unit_amount)`)
-            .eq("to", p.partner.warehouse_id)
+            .eq("to", p.warehouse_id)
             .not("acepted_at", "is", null)
             .is("rejected_at", null)
 
@@ -388,19 +388,19 @@ export default function DashboardPage() {
           }
         }
 
-        // Warehouse stock value
-        if (p.partner?.warehouse_id) {
+        // Warehouse stock value (per project's warehouse)
+        if (p.warehouse_id) {
           const { data: stockData } = await supabase
             .from("warehouse_item_stock")
             .select("item_id, stock_qty")
-            .eq("warehouse_id", p.partner.warehouse_id)
+            .eq("warehouse_id", p.warehouse_id)
           for (const s of stockData || []) {
             const { data: tis } = await supabase
               .from("transfer_item")
               .select("unit_amount, transfer:transfer_id(acepted_at, to, from)")
               .eq("item_id", s.item_id)
               .not("transfer.acepted_at", "is", null)
-              .or(`to.eq.${p.partner.warehouse_id},from.eq.${p.partner.warehouse_id}`, { foreignTable: "transfer" })
+              .or(`to.eq.${p.warehouse_id},from.eq.${p.warehouse_id}`, { foreignTable: "transfer" })
             const valid = (tis || []).map((t: any) => t.unit_amount).filter((pr: any) => pr != null)
             const avg = valid.length > 0 ? valid.reduce((a: number, b: number) => a + b, 0) / valid.length : 0
             warehouseStockValue += avg * s.stock_qty

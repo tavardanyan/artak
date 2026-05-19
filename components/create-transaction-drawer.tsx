@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowDownLeft, ArrowUpRight, ChevronsUpDown, Check } from "lucide-react"
+import { ArrowDownLeft, ArrowUpRight, ChevronsUpDown, Check, Search } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -83,8 +83,10 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [showContractSelect, setShowContractSelect] = useState(false)
-  const [fromAccountTab, setFromAccountTab] = useState<"all" | "internal" | "external">("all")
-  const [toAccountTab, setToAccountTab] = useState<"all" | "internal" | "external">("all")
+  const [fromAccountTab, setFromAccountTab] = useState<"all" | "internal" | "external" | "persons">("all")
+  const [toAccountTab, setToAccountTab] = useState<"all" | "internal" | "external" | "persons">("all")
+  const [fromSearch, setFromSearch] = useState("")
+  const [toSearch, setToSearch] = useState("")
   const [fromAccountBalance, setFromAccountBalance] = useState<number | null>(null)
   const [toAccountBalance, setToAccountBalance] = useState<number | null>(null)
   const [contractTransactionsTotal, setContractTransactionsTotal] = useState<number>(0)
@@ -221,12 +223,11 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
 
   const fetchContractTransactions = async (contractId: number) => {
     try {
-      // Fetch only accepted transactions for this contract
+      // Contracts are linked via contract_transaction table
       const { data, error } = await supabase
-        .from("transaction")
-        .select("amount")
-        .eq("contract_id", contractId)
-        .not("acepted_at", "is", null)
+        .from("contract_transaction")
+        .select("transaction:transaction_id(amount, accepted_at, rejected_at)")
+        .eq("contact_id", contractId)
 
       if (error) {
         console.error("Error fetching contract transactions:", error)
@@ -234,7 +235,11 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
         return
       }
 
-      const total = (data || []).reduce((sum, t) => sum + t.amount, 0)
+      const total = (data || []).reduce((sum: number, ct: any) => {
+        const t = ct.transaction
+        if (!t || !t.accepted_at || t.rejected_at) return sum
+        return sum + (t.amount || 0)
+      }, 0)
       setContractTransactionsTotal(total)
     } catch (error) {
       console.error("Error:", error)
@@ -410,7 +415,7 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-[50vw] overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-[65vw] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Ստեղծել նոր գործարք</SheetTitle>
           <SheetDescription>
@@ -421,17 +426,10 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
         <div className="space-y-6 py-6">
           {/* Basic Info Section */}
           <div className="grid grid-cols-2 gap-4">
-            {/* Transaction Type */}
+            {/* Transaction Type - locked to outgoing */}
             <div className="space-y-2">
               <Label>Տեսակ</Label>
-              <Select
-                value={transactionType}
-                onValueChange={(value: "incoming" | "outgoing") => {
-                  setTransactionType(value)
-                  setFromAccount("")
-                  setToAccount("")
-                }}
-              >
+              <Select value="outgoing" disabled>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -440,12 +438,6 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
                     <div className="flex items-center gap-2">
                       <ArrowUpRight className="h-4 w-4 text-red-500" />
                       <span>Ելք</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="incoming">
-                    <div className="flex items-center gap-2">
-                      <ArrowDownLeft className="h-4 w-4 text-green-500" />
-                      <span>Մուտք</span>
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -472,91 +464,91 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
           </div>
 
           {/* Account Section */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* From Account */}
-            <div className="space-y-2">
-              <Label>Ից</Label>
-              <Tabs value={fromAccountTab} onValueChange={(v) => setFromAccountTab(v as "all" | "internal" | "external")} className="w-full">
-                <TabsList className="w-full h-8">
-                  <TabsTrigger value="all" className="text-xs flex-1">Բոլորը</TabsTrigger>
-                  <TabsTrigger value="internal" className="text-xs flex-1">Ներքին</TabsTrigger>
-                  <TabsTrigger value="external" className="text-xs flex-1">Արտաքին</TabsTrigger>
-                </TabsList>
-              </Tabs>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                    {fromAccount ? accounts.find(a => a.id.toString() === fromAccount)?.name || "Ընտրեք հաշիվը" : "Ընտրեք հաշիվը"}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
-                  <Command>
-                    <CommandInput placeholder="Որոնել հաշիվ..." />
-                    <CommandList>
-                      <CommandEmpty>Հաշիվ չի գտնվել</CommandEmpty>
-                      <CommandGroup>
-                        {accounts
-                          .filter(a => fromAccountTab === "all" ? true : fromAccountTab === "internal" ? a.internal : !a.internal)
-                          .map((account) => (
-                          <CommandItem
+          {(() => {
+            const personAccountIds = new Set(persons.map(p => p.account_id))
+            const filterAccount = (a: typeof accounts[0], tab: "all" | "internal" | "external" | "persons", search: string) => {
+              if (tab === "internal" && !a.internal) return false
+              if (tab === "external" && a.internal) return false
+              if (tab === "persons" && !personAccountIds.has(a.id)) return false
+              if (search && !a.name.toLowerCase().includes(search.toLowerCase())) return false
+              return true
+            }
+            return (
+              <div className="grid grid-cols-2 gap-4">
+                {/* From Account */}
+                <div className="space-y-2">
+                  <Label>Ից</Label>
+                  <Tabs value={fromAccountTab} onValueChange={(v) => setFromAccountTab(v as any)} className="w-full">
+                    <TabsList className="w-full h-8">
+                      <TabsTrigger value="all" className="text-xs flex-1">Բոլորը</TabsTrigger>
+                      <TabsTrigger value="internal" className="text-xs flex-1">Ներքին</TabsTrigger>
+                      <TabsTrigger value="external" className="text-xs flex-1">Արտաքին</TabsTrigger>
+                      <TabsTrigger value="persons" className="text-xs flex-1">Անձինք</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Որոնել հաշիվ..." value={fromSearch} onChange={(e) => setFromSearch(e.target.value)} className="pl-9 h-8 text-sm" />
+                  </div>
+                  <div className="border rounded-md overflow-y-auto h-[240px]">
+                    {accounts.filter(a => filterAccount(a, fromAccountTab, fromSearch)).length === 0 ? (
+                      <div className="text-center text-sm text-muted-foreground py-6">Հաշիվ չի գտնվել</div>
+                    ) : (
+                      <div className="divide-y">
+                        {accounts.filter(a => filterAccount(a, fromAccountTab, fromSearch)).map((account) => (
+                          <div
                             key={account.id}
-                            value={account.name}
-                            onSelect={() => setFromAccount(account.id.toString())}
+                            onClick={() => setFromAccount(account.id.toString())}
+                            className={cn("flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-accent/50 text-sm", fromAccount === account.id.toString() && "bg-accent")}
                           >
-                            <Check className={cn("mr-2 h-4 w-4", fromAccount === account.id.toString() ? "opacity-100" : "opacity-0")} />
-                            {account.name} ({account.currency.toUpperCase()})
-                          </CommandItem>
+                            <Check className={cn("h-4 w-4 shrink-0", fromAccount === account.id.toString() ? "opacity-100" : "opacity-0")} />
+                            <span className="truncate flex-1">{account.name}</span>
+                            <span className="text-xs text-muted-foreground">{account.currency.toUpperCase()}</span>
+                          </div>
                         ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-            {/* To Account */}
-            <div className="space-y-2">
-              <Label>Դեպի</Label>
-              <Tabs value={toAccountTab} onValueChange={(v) => setToAccountTab(v as "all" | "internal" | "external")} className="w-full">
-                <TabsList className="w-full h-8">
-                  <TabsTrigger value="all" className="text-xs flex-1">Բոլորը</TabsTrigger>
-                  <TabsTrigger value="internal" className="text-xs flex-1">Ներքին</TabsTrigger>
-                  <TabsTrigger value="external" className="text-xs flex-1">Արտաքին</TabsTrigger>
-                </TabsList>
-              </Tabs>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                    {toAccount ? accounts.find(a => a.id.toString() === toAccount)?.name || "Ընտրեք հաշիվը" : "Ընտրեք հաշիվը"}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
-                  <Command>
-                    <CommandInput placeholder="Որոնել հաշիվ..." />
-                    <CommandList>
-                      <CommandEmpty>Հաշիվ չի գտնվել</CommandEmpty>
-                      <CommandGroup>
-                        {accounts
-                          .filter(a => toAccountTab === "all" ? true : toAccountTab === "internal" ? a.internal : !a.internal)
-                          .map((account) => (
-                          <CommandItem
+                {/* To Account */}
+                <div className="space-y-2">
+                  <Label>Դեպի</Label>
+                  <Tabs value={toAccountTab} onValueChange={(v) => setToAccountTab(v as any)} className="w-full">
+                    <TabsList className="w-full h-8">
+                      <TabsTrigger value="all" className="text-xs flex-1">Բոլորը</TabsTrigger>
+                      <TabsTrigger value="internal" className="text-xs flex-1">Ներքին</TabsTrigger>
+                      <TabsTrigger value="external" className="text-xs flex-1">Արտաքին</TabsTrigger>
+                      <TabsTrigger value="persons" className="text-xs flex-1">Անձինք</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Որոնել հաշիվ..." value={toSearch} onChange={(e) => setToSearch(e.target.value)} className="pl-9 h-8 text-sm" />
+                  </div>
+                  <div className="border rounded-md overflow-y-auto h-[240px]">
+                    {accounts.filter(a => filterAccount(a, toAccountTab, toSearch)).length === 0 ? (
+                      <div className="text-center text-sm text-muted-foreground py-6">Հաշիվ չի գտնվել</div>
+                    ) : (
+                      <div className="divide-y">
+                        {accounts.filter(a => filterAccount(a, toAccountTab, toSearch)).map((account) => (
+                          <div
                             key={account.id}
-                            value={account.name}
-                            onSelect={() => setToAccount(account.id.toString())}
+                            onClick={() => setToAccount(account.id.toString())}
+                            className={cn("flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-accent/50 text-sm", toAccount === account.id.toString() && "bg-accent")}
                           >
-                            <Check className={cn("mr-2 h-4 w-4", toAccount === account.id.toString() ? "opacity-100" : "opacity-0")} />
-                            {account.name} ({account.currency.toUpperCase()})
-                          </CommandItem>
+                            <Check className={cn("h-4 w-4 shrink-0", toAccount === account.id.toString() ? "opacity-100" : "opacity-0")} />
+                            <span className="truncate flex-1">{account.name}</span>
+                            <span className="text-xs text-muted-foreground">{account.currency.toUpperCase()}</span>
+                          </div>
                         ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-          </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Account Balances - shown when accounts are selected */}
           {(fromAccount || toAccount) && (fromAccountBalance != null || toAccountBalance != null) && (

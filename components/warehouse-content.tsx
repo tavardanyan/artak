@@ -1165,7 +1165,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     </div>
                     <div className="flex justify-between text-sm pt-2 border-t">
                       <span className="text-muted-foreground">Ընդամենը</span>
-                      <span className="font-bold">{selectedTransfer.invoice.total.toLocaleString()} ֏</span>
+                      <span className="font-bold">{(selectedTransfer.invoice.total ?? 0).toLocaleString()} ֏</span>
                     </div>
                   </CardContent>
                 </Card>
