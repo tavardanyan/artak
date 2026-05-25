@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, Settings, Key, Warehouse, List } from "lucide-react"
+import { Loader2, Settings, Key, Warehouse, List, Briefcase, Plus, X } from "lucide-react"
 import { EditConfigDrawer } from "@/components/edit-config-drawer"
 
 interface Config {
@@ -41,6 +41,9 @@ export default function ConfigsPage() {
   const [savingWarehouse, setSavingWarehouse] = useState(false)
   const [savingLimit, setSavingLimit] = useState(false)
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([])
+  const [positions, setPositions] = useState<string[]>([])
+  const [newPosition, setNewPosition] = useState("")
+  const [savingPositions, setSavingPositions] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
 
@@ -74,9 +77,10 @@ export default function ConfigsPage() {
 
   const fetchSettings = async () => {
     try {
-      const [warehouseData, limitData] = await Promise.all([
+      const [warehouseData, limitData, positionsData] = await Promise.all([
         supabase.from("settings").select("value").eq("key", "default_transfer_warehouse").single(),
         supabase.from("settings").select("value").eq("key", "item_matching_limit").single(),
+        supabase.from("settings").select("value").eq("key", "staff_positions").single(),
       ])
 
       if (warehouseData.data?.value) {
@@ -85,9 +89,43 @@ export default function ConfigsPage() {
       if (limitData.data?.value) {
         setMatchLimit(limitData.data.value)
       }
+      if (Array.isArray(positionsData.data?.value)) {
+        setPositions(positionsData.data.value as string[])
+      }
     } catch (error) {
       console.error("Error fetching settings:", error)
     }
+  }
+
+  const savePositions = async (next: string[]) => {
+    setSavingPositions(true)
+    try {
+      const { error } = await supabase
+        .from("settings")
+        .upsert({ key: "staff_positions", value: next })
+      if (error) throw error
+      setPositions(next)
+      toast({ title: "Հաջողություն", description: "Պաշտոնների ցանկը թարմացվեց" })
+    } catch (error: any) {
+      toast({ title: "Սխալ", description: error?.message || "Չհաջողվեց պահպանել", variant: "destructive" })
+    } finally {
+      setSavingPositions(false)
+    }
+  }
+
+  const handleAddPosition = () => {
+    const v = newPosition.trim()
+    if (!v) return
+    if (positions.includes(v)) {
+      toast({ title: "Սխալ", description: "Այս պաշտոնն արդեն կա", variant: "destructive" })
+      return
+    }
+    savePositions([...positions, v])
+    setNewPosition("")
+  }
+
+  const handleRemovePosition = (p: string) => {
+    savePositions(positions.filter((x) => x !== p))
   }
 
   const fetchWarehouses = async () => {
@@ -302,6 +340,59 @@ export default function ConfigsPage() {
                     "Պահպանել"
                   )}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Staff Positions */}
+          <Card className="hover:bg-accent/50 transition-colors md:col-span-2 lg:col-span-3">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-primary" />
+                <CardTitle>Աշխատակիցների պաշտոններ</CardTitle>
+              </div>
+              <CardDescription>
+                Ավելացրեք կամ հեռացրեք պաշտոնները՝ որոնք օգտագործվում են աշխատակիցների գրանցման և զտման համար
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2 min-h-[40px]">
+                  {positions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Դեռ պաշտոններ չկան</p>
+                  ) : (
+                    positions.map((p) => (
+                      <div
+                        key={p}
+                        className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 text-sm"
+                      >
+                        <span>{p}</span>
+                        <button
+                          onClick={() => handleRemovePosition(p)}
+                          disabled={savingPositions}
+                          className="text-muted-foreground hover:text-destructive"
+                          aria-label={`Հեռացնել ${p}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Նոր պաշտոնի անվանումը"
+                    value={newPosition}
+                    onChange={(e) => setNewPosition(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddPosition() } }}
+                    disabled={savingPositions}
+                  />
+                  <Button onClick={handleAddPosition} disabled={savingPositions || !newPosition.trim()}>
+                    {savingPositions ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    <span className="ml-2">Ավելացնել</span>
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

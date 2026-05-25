@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from "@/hooks/use-toast"
 import { Upload, FileText, Star, Trash2, Loader2, Download, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { uuidv4 } from "@/lib/utils/uuid"
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 
@@ -106,7 +107,7 @@ export function ProjectDocuments({ projectId }: ProjectDocumentsProps) {
     setUploading(true)
     try {
       for (const { file, name } of pendingFiles) {
-        const fileId = crypto.randomUUID()
+        const fileId = uuidv4()
         const { ext } = splitExt(file.name)
         const filePath = `documents/project/${projectId}/${fileId}${ext}`
         const finalName = (name.trim() || splitExt(file.name).base) + ext

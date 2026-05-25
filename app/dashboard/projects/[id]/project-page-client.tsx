@@ -162,7 +162,7 @@ interface Contract {
   person?: {
     first_name: string
     last_lame: string | null
-    position: string | null
+    position: string[] | null
   }
   contract_transaction?: ContractTransaction[]
 }
@@ -171,7 +171,7 @@ interface Person {
   id: number
   first_name: string
   last_lame: string | null
-  position: string | null
+  position: string[] | null
 }
 
 interface Contact {
@@ -180,7 +180,7 @@ interface Contact {
   last_lame: string | null
   phone: string | null
   email: string | null
-  position: string | null
+  position: string[] | null
   partner_id: number | null
 }
 
@@ -1336,9 +1336,9 @@ export default function ProjectPageClient({
                           <TableCell>
                             <div>
                               <p className="font-medium">{personName}</p>
-                              {contract.person?.position && (
+                              {contract.person?.position && contract.person.position.length > 0 && (
                                 <p className="text-xs text-muted-foreground">
-                                  {contract.person.position}
+                                  {contract.person.position.join(", ")}
                                 </p>
                               )}
                             </div>
@@ -1441,7 +1441,7 @@ export default function ProjectPageClient({
                           {contact.first_name} {contact.last_lame || ""}
                         </TableCell>
                         <TableCell>
-                          {contact.position || "-"}
+                          {contact.position && contact.position.length > 0 ? contact.position.join(", ") : "-"}
                         </TableCell>
                         <TableCell>{contact.phone || "-"}</TableCell>
                         <TableCell>{contact.email || "-"}</TableCell>
@@ -1952,9 +1952,9 @@ function CreateContractDrawer({
                 {staff.map((person) => (
                   <SelectItem key={person.id} value={person.id.toString()}>
                     {person.first_name} {person.last_lame || ""}
-                    {person.position && (
+                    {person.position && person.position.length > 0 && (
                       <span className="text-muted-foreground text-xs ml-2">
-                        ({person.position})
+                        ({person.position.join(", ")})
                       </span>
                     )}
                   </SelectItem>
@@ -2213,9 +2213,9 @@ function EditContractDrawer({
                 {staff.map((person) => (
                   <SelectItem key={person.id} value={person.id.toString()}>
                     {person.first_name} {person.last_lame || ""}
-                    {person.position && (
+                    {person.position && person.position.length > 0 && (
                       <span className="text-muted-foreground text-xs ml-2">
-                        ({person.position})
+                        ({person.position.join(", ")})
                       </span>
                     )}
                   </SelectItem>

@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -14,17 +15,17 @@ import {
   FileText,
   FileImage,
   FileSpreadsheet,
-  File,
+  File as FileIcon,
   Download,
   Eye,
   MoreVertical,
   Calendar,
-  User,
   Plus,
   Upload,
   Monitor,
-  Scan,
   X,
+  Loader2,
+  Search,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -39,508 +40,477 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScannerComponent } from "@/components/scanner-component"
+import { createClient } from "@/lib/supabase/client"
+import { useToast } from "@/hooks/use-toast"
+import { uuidv4 } from "@/lib/utils/uuid"
 
-// Document types with icons
-const getFileIcon = (fileType: string) => {
-  switch (fileType) {
-    case "pdf":
-      return <FileText className="h-12 w-12 text-red-500" />
-    case "jpg":
-    case "png":
-    case "jpeg":
-      return <FileImage className="h-12 w-12 text-blue-500" />
-    case "xlsx":
-    case "xls":
-      return <FileSpreadsheet className="h-12 w-12 text-green-500" />
-    case "docx":
-    case "doc":
-      return <FileText className="h-12 w-12 text-blue-600" />
-    default:
-      return <File className="h-12 w-12 text-gray-500" />
-  }
+const MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
+const STORAGE_BUCKET = "artak"
+const STORAGE_FOLDER = "documents/global"
+
+interface DocumentRow {
+  id: string
+  created_at: string
+  file_name: string | null
+  file_path: string | null
+  mime_type: string | null
+  file_size: number | null
+  type: string | null
+  note: string | null
 }
 
-// Sample documents data
-const documentsData = [
-  {
-    id: 1,
-    name: "Պայմանագիր_2024.pdf",
-    fileType: "pdf",
-    size: "2.5 MB",
-    uploadDate: "2024-01-15",
-    uploadedBy: "Արամ Պետրոսյան",
-    project: "Նախագիծ 1",
-    category: "Պայմանագրեր",
-  },
-  {
-    id: 2,
-    name: "Հաշվետվություն_Q1.xlsx",
-    fileType: "xlsx",
-    size: "1.2 MB",
-    uploadDate: "2024-02-20",
-    uploadedBy: "Անահիտ Գրիգորյան",
-    project: "Նախագիծ 2",
-    category: "Հաշվետվություններ",
-  },
-  {
-    id: 3,
-    name: "Նկար_1.jpg",
-    fileType: "jpg",
-    size: "3.8 MB",
-    uploadDate: "2024-03-10",
-    uploadedBy: "Գևորգ Սարգսյան",
-    project: "Նախագիծ 1",
-    category: "Նկարներ",
-  },
-  {
-    id: 4,
-    name: "Ֆինանսական_հաշվետվություն.docx",
-    fileType: "docx",
-    size: "856 KB",
-    uploadDate: "2024-04-05",
-    uploadedBy: "Անահիտ Գրիգորյան",
-    project: "Նախագիծ 3",
-    category: "Հաշվետվություններ",
-  },
-  {
-    id: 5,
-    name: "Աշխատանքային_գրաֆիկ.xlsx",
-    fileType: "xlsx",
-    size: "425 KB",
-    uploadDate: "2024-05-12",
-    uploadedBy: "Արամ Պետրոսյան",
-    project: "Նախագիծ 2",
-    category: "Գրաֆիկներ",
-  },
-  {
-    id: 6,
-    name: "Հարկային_փաստաթուղթ.pdf",
-    fileType: "pdf",
-    size: "1.8 MB",
-    uploadDate: "2024-06-18",
-    uploadedBy: "Անահիտ Գրիգորյան",
-    project: "Նախագիծ 1",
-    category: "Հարկային",
-  },
-  {
-    id: 7,
-    name: "Ծրագիր_2024.png",
-    fileType: "png",
-    size: "2.1 MB",
-    uploadDate: "2024-07-22",
-    uploadedBy: "Մարիամ Ավագյան",
-    project: "Նախագիծ 3",
-    category: "Նկարներ",
-  },
-  {
-    id: 8,
-    name: "Վերլուծություն.docx",
-    fileType: "docx",
-    size: "1.5 MB",
-    uploadDate: "2024-08-14",
-    uploadedBy: "Դավիթ Հովհաննիսյան",
-    project: "Նախագիծ 2",
-    category: "Վերլուծություններ",
-  },
-]
-
-// Get unique values for filters
-const getUniqueProjects = () => {
-  const projects = documentsData.map(doc => doc.project)
-  return [...new Set(projects)]
+function getExt(name: string | null | undefined): string {
+  if (!name) return ""
+  const i = name.lastIndexOf(".")
+  return i >= 0 ? name.slice(i + 1).toLowerCase() : ""
 }
 
-const getUniqueCategories = () => {
-  const categories = documentsData.map(doc => doc.category)
-  return [...new Set(categories)]
+function isImage(mime: string | null | undefined, name: string | null | undefined): boolean {
+  if (mime && mime.startsWith("image/")) return true
+  const ext = getExt(name)
+  return ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)
 }
 
-const getUniqueFileTypes = () => {
-  const types = documentsData.map(doc => doc.fileType)
-  return [...new Set(types)]
+function isPdf(mime: string | null | undefined, name: string | null | undefined): boolean {
+  if (mime === "application/pdf") return true
+  return getExt(name) === "pdf"
+}
+
+function getFileIcon(name: string | null | undefined, mime: string | null | undefined) {
+  if (isImage(mime, name)) return <FileImage className="h-12 w-12 text-blue-500" />
+  if (isPdf(mime, name)) return <FileText className="h-12 w-12 text-red-500" />
+  const ext = getExt(name)
+  if (["xlsx", "xls", "csv"].includes(ext)) return <FileSpreadsheet className="h-12 w-12 text-green-500" />
+  if (["doc", "docx"].includes(ext)) return <FileText className="h-12 w-12 text-blue-600" />
+  return <FileIcon className="h-12 w-12 text-gray-500" />
+}
+
+function formatBytes(bytes: number | null | undefined): string {
+  if (!bytes) return "—"
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
 export default function DocumentsPage() {
-  const [selectedFileType, setSelectedFileType] = useState<string>("all")
-  const [selectedProject, setSelectedProject] = useState<string>("all")
-  const [selectedCategory, setSelectedCategory] = useState<string>("all")
+  const supabase = createClient()
+  const { toast } = useToast()
+
+  const [docs, setDocs] = useState<DocumentRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState("")
+  const [filterType, setFilterType] = useState<string>("all")
   const [sortBy, setSortBy] = useState<string>("newest")
-  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false)
+
+  // Upload dialog state
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [uploading, setUploading] = useState(false)
 
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(true)
-  }, [])
+  // Preview dialog state
+  const [previewDoc, setPreviewDoc] = useState<DocumentRow | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(false)
-  }, [])
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }, [])
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(false)
-
-    const files = Array.from(e.dataTransfer.files)
-    setSelectedFiles(prev => [...prev, ...files])
-  }, [])
-
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const files = Array.from(e.target.files)
-      setSelectedFiles(prev => [...prev, ...files])
+  const fetchDocs = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from("files")
+        .select("id, created_at, file_name, file_path, mime_type, file_size, type, note")
+        .is("person_id", null)
+        .is("partner_id", null)
+        .is("project_id", null)
+        .order("created_at", { ascending: false })
+      if (error) throw error
+      setDocs((data || []) as DocumentRow[])
+    } catch (err: any) {
+      toast({ title: "Սխալ", description: err.message || "Չհաջողվեց բեռնել փաստաթղթերը", variant: "destructive" })
+    } finally {
+      setLoading(false)
     }
-  }, [])
+  }, [supabase, toast])
 
-  const removeFile = useCallback((index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index))
-  }, [])
+  useEffect(() => { fetchDocs() }, [fetchDocs])
 
-  const handleScannedFiles = useCallback((files: File[]) => {
-    setSelectedFiles(prev => [...prev, ...files])
-  }, [])
+  const addFiles = useCallback((files: File[]) => {
+    const okFiles: File[] = []
+    const rejected: string[] = []
+    for (const f of files) {
+      if (f.size > MAX_SIZE_BYTES) rejected.push(f.name)
+      else okFiles.push(f)
+    }
+    if (rejected.length > 0) {
+      toast({
+        title: "Չափի սահմանաչափ",
+        description: `Հետևյալ ֆայլերը գերազանցում են 10 ՄԲ սահմանը. ${rejected.join(", ")}`,
+        variant: "destructive",
+      })
+    }
+    if (okFiles.length > 0) setSelectedFiles((prev) => [...prev, ...okFiles])
+  }, [toast])
 
-  // Filter and sort documents
-  const filteredAndSortedDocuments = useMemo(() => {
-    let filtered = documentsData.filter(doc => {
-      const fileTypeMatch = selectedFileType === "all" || doc.fileType === selectedFileType
-      const projectMatch = selectedProject === "all" || doc.project === selectedProject
-      const categoryMatch = selectedCategory === "all" || doc.category === selectedCategory
-      return fileTypeMatch && projectMatch && categoryMatch
+  const handleDragEnter = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true) }
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false) }
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation() }
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation(); setIsDragging(false)
+    addFiles(Array.from(e.dataTransfer.files))
+  }
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) addFiles(Array.from(e.target.files))
+    e.target.value = ""
+  }
+  const removeSelected = (i: number) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))
+
+  const handleUpload = async () => {
+    if (selectedFiles.length === 0) return
+    setUploading(true)
+    let succeeded = 0
+    let failed = 0
+    for (const file of selectedFiles) {
+      try {
+        const fileId = uuidv4()
+        const ext = getExt(file.name)
+        const path = ext ? `${STORAGE_FOLDER}/${fileId}.${ext}` : `${STORAGE_FOLDER}/${fileId}`
+
+        const { error: upErr } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(path, file, { contentType: file.type || undefined })
+        if (upErr) throw upErr
+
+        const { error: dbErr } = await supabase.from("files").insert({
+          id: fileId,
+          file_path: path,
+          file_name: file.name,
+          mime_type: file.type || null,
+          file_size: file.size,
+        })
+        if (dbErr) {
+          // Roll back the uploaded blob
+          await supabase.storage.from(STORAGE_BUCKET).remove([path])
+          throw dbErr
+        }
+        succeeded++
+      } catch (err: any) {
+        console.error("Upload failed:", err)
+        failed++
+      }
+    }
+    setUploading(false)
+    setSelectedFiles([])
+    setUploadOpen(false)
+
+    if (succeeded > 0) toast({ title: "Հաջողություն", description: `${succeeded} ֆայլ վերբեռնվեց` })
+    if (failed > 0) toast({ title: "Սխալ", description: `${failed} ֆայլ չհաջողվեց վերբեռնել`, variant: "destructive" })
+
+    fetchDocs()
+  }
+
+  const getPublicUrl = (doc: DocumentRow): string | null => {
+    if (!doc.file_path) return null
+    return supabase.storage.from(STORAGE_BUCKET).getPublicUrl(doc.file_path).data.publicUrl
+  }
+
+  const handleView = (doc: DocumentRow) => {
+    const url = getPublicUrl(doc)
+    if (!url) return
+    if (isImage(doc.mime_type, doc.file_name) || isPdf(doc.mime_type, doc.file_name)) {
+      setPreviewDoc(doc)
+      setPreviewUrl(url)
+    } else {
+      window.open(url, "_blank")
+    }
+  }
+
+  const handleDownload = async (doc: DocumentRow) => {
+    if (!doc.file_path) return
+    try {
+      const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(doc.file_path)
+      if (error || !data) throw error || new Error("No data")
+      const url = URL.createObjectURL(data)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = doc.file_name || "file"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      toast({ title: "Սխալ", description: err.message || "Չհաջողվեց ներբեռնել", variant: "destructive" })
+    }
+  }
+
+  const handleDelete = async (doc: DocumentRow) => {
+    if (!confirm(`Ջնջե՞լ "${doc.file_name}"-ը։ Այս գործողությունն անհետացնելի է։`)) return
+    try {
+      if (doc.file_path) {
+        await supabase.storage.from(STORAGE_BUCKET).remove([doc.file_path])
+      }
+      const { error } = await supabase.from("files").delete().eq("id", doc.id)
+      if (error) throw error
+      toast({ title: "Հաջողություն", description: "Փաստաթուղթը ջնջվեց" })
+      fetchDocs()
+    } catch (err: any) {
+      toast({ title: "Սխալ", description: err.message || "Չհաջողվեց ջնջել", variant: "destructive" })
+    }
+  }
+
+  const uniqueExtensions = useMemo(() => {
+    const set = new Set<string>()
+    docs.forEach((d) => { const e = getExt(d.file_name); if (e) set.add(e) })
+    return Array.from(set).sort()
+  }, [docs])
+
+  const filteredDocs = useMemo(() => {
+    let list = docs.filter((d) => {
+      if (filterType !== "all" && getExt(d.file_name) !== filterType) return false
+      if (search.trim()) {
+        const q = search.toLowerCase()
+        return (d.file_name || "").toLowerCase().includes(q) || (d.note || "").toLowerCase().includes(q)
+      }
+      return true
     })
-
-    // Sort documents
-    filtered.sort((a, b) => {
+    list = [...list].sort((a, b) => {
       switch (sortBy) {
-        case "newest":
-          return new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
-        case "oldest":
-          return new Date(a.uploadDate).getTime() - new Date(b.uploadDate).getTime()
-        case "name":
-          return a.name.localeCompare(b.name)
-        default:
-          return 0
+        case "newest": return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        case "oldest": return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        case "name": return (a.file_name || "").localeCompare(b.file_name || "")
+        case "size_desc": return (b.file_size || 0) - (a.file_size || 0)
+        default: return 0
       }
     })
-
-    return filtered
-  }, [selectedFileType, selectedProject, selectedCategory, sortBy])
+    return list
+  }, [docs, filterType, search, sortBy])
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Փաստաթղթեր</h2>
-          <p className="text-muted-foreground">
-            Կառավարեք ձեր բոլոր փաստաթղթերը մեկ տեղում
-          </p>
+          <p className="text-muted-foreground">Ընդհանուր ֆայլերի պահոց. վերբեռնեք, ներբեռնեք և դիտեք</p>
         </div>
-        <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Ավելացնել ֆայլ
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>Ավելացնել նոր փաստաթուղթ</DialogTitle>
-              <DialogDescription>
-                Ընտրեք ֆայլերը քաշելով և թողնելով, ընտրելով համակարգչից կամ սկանավորելով
-              </DialogDescription>
-            </DialogHeader>
-
-            <Tabs defaultValue="upload" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="upload">Վերբեռնել</TabsTrigger>
-                <TabsTrigger value="scan">Սկանավորել</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="upload" className="space-y-4 py-4">
-                {/* Drag and Drop Area */}
-                <div
-                  onDragEnter={handleDragEnter}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                    isDragging
-                      ? "border-primary bg-primary/5"
-                      : "border-muted-foreground/25 hover:border-muted-foreground/50"
-                  }`}
-                >
-                  <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-sm font-medium mb-1">
-                    Քաշեք և թողեք ֆայլերը այստեղ
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    կամ սեղմեք ներքևի կոճակը՝ ֆայլ ընտրելու համար
-                  </p>
-                </div>
-
-                {/* Upload from PC */}
-                <div className="relative">
-                  <input
-                    type="file"
-                    id="file-upload"
-                    multiple
-                    onChange={handleFileSelect}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2"
-                  >
-                    <Monitor className="h-8 w-8" />
-                    <span>Ընտրել համակարգչից</span>
-                  </Button>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="scan" className="space-y-4 py-4">
-                <ScannerComponent onScanned={handleScannedFiles} />
-              </TabsContent>
-            </Tabs>
-
-            <div className="space-y-4">{/* This wrapper keeps the selected files and upload button outside tabs */}
-
-                {/* Selected Files List */}
-                {selectedFiles.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Ընտրված ֆայլեր ({selectedFiles.length})</p>
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {selectedFiles.map((file, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center justify-between p-2 bg-muted rounded-lg"
-                        >
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm truncate">{file.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {(file.size / 1024).toFixed(2)} KB
-                              </p>
-                            </div>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeFile(index)}
-                            className="flex-shrink-0"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Upload Button */}
-                {selectedFiles.length > 0 && (
-                  <div className="flex justify-end gap-2 pt-4">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setSelectedFiles([])
-                        setIsUploadDialogOpen(false)
-                      }}
-                    >
-                      Չեղարկել
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        // Handle upload logic here
-                        console.log("Uploading files:", selectedFiles)
-                        setSelectedFiles([])
-                        setIsUploadDialogOpen(false)
-                      }}
-                    >
-                      Վերբեռնել ({selectedFiles.length})
-                    </Button>
-                  </div>
-                )}
-              </div>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={() => setUploadOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Ավելացնել ֆայլ
+        </Button>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-4">
-        <div className="w-full sm:w-48">
-          <Select value={selectedFileType} onValueChange={setSelectedFileType}>
-            <SelectTrigger>
-              <SelectValue placeholder="Ֆայլի տեսակ" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Բոլոր ֆայլերը</SelectItem>
-              {getUniqueFileTypes().map(type => (
-                <SelectItem key={type} value={type}>
-                  {type.toUpperCase()}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="relative flex-1 min-w-[240px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Փնտրել ըստ անվան..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
         </div>
-
-        <div className="w-full sm:w-48">
-          <Select value={selectedProject} onValueChange={setSelectedProject}>
-            <SelectTrigger>
-              <SelectValue placeholder="Նախագիծ" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Բոլոր նախագծերը</SelectItem>
-              {getUniqueProjects().map(project => (
-                <SelectItem key={project} value={project}>
-                  {project}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="w-full sm:w-48">
-          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-            <SelectTrigger>
-              <SelectValue placeholder="Կատեգորիա" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Բոլոր կատեգորիաները</SelectItem>
-              {getUniqueCategories().map(category => (
-                <SelectItem key={category} value={category}>
-                  {category}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="w-full sm:w-48 ml-auto">
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger>
-              <SelectValue placeholder="Դասավորել" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">Նորագույն</SelectItem>
-              <SelectItem value="oldest">Հնագույն</SelectItem>
-              <SelectItem value="name">Անվան պատվով</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <Select value={filterType} onValueChange={setFilterType}>
+          <SelectTrigger className="w-44"><SelectValue placeholder="Ֆայլի տեսակ" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Բոլոր տեսակները</SelectItem>
+            {uniqueExtensions.map((e) => <SelectItem key={e} value={e}>{e.toUpperCase()}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="newest">Նորագույն</SelectItem>
+            <SelectItem value="oldest">Հնագույն</SelectItem>
+            <SelectItem value="name">Անվան պատվով</SelectItem>
+            <SelectItem value="size_desc">Չափով (նվազման)</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
-      {/* Results count */}
       <div className="text-sm text-muted-foreground">
-        Ցուցադրվում է {filteredAndSortedDocuments.length} փաստաթուղթ
+        Ցուցադրվում է {filteredDocs.length} ֆայլ
       </div>
 
-      {/* Documents Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {filteredAndSortedDocuments.map((doc) => (
-          <Card key={doc.id} className="group hover:shadow-lg transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex flex-col items-center space-y-4">
-                {/* File Icon */}
-                <div className="p-4 bg-muted rounded-lg">
-                  {getFileIcon(doc.fileType)}
-                </div>
-
-                {/* File Info */}
-                <div className="w-full space-y-2">
-                  <h3 className="font-semibold truncate text-center" title={doc.name}>
-                    {doc.name}
-                  </h3>
-
-                  <div className="flex flex-wrap gap-1 justify-center">
-                    <Badge variant="secondary" className="text-xs">
-                      {doc.fileType.toUpperCase()}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      {doc.size}
-                    </Badge>
-                  </div>
-
-                  <div className="space-y-1 text-xs text-muted-foreground">
-                    <div className="flex items-center justify-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      <span>{new Date(doc.uploadDate).toLocaleDateString('hy-AM')}</span>
-                    </div>
-                    <div className="flex items-center justify-center gap-1">
-                      <User className="h-3 w-3" />
-                      <span className="truncate">{doc.uploadedBy}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-center gap-1">
-                    <Badge variant="outline" className="text-xs">
-                      {doc.project}
-                    </Badge>
-                  </div>
-
-                  <div className="text-center">
-                    <Badge className="text-xs">
-                      {doc.category}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-
-            <CardFooter className="p-3 pt-0 flex justify-center gap-2">
-              <Button size="sm" variant="outline" className="flex-1">
-                <Eye className="h-4 w-4 mr-1" />
-                Դիտել
-              </Button>
-              <Button size="sm" variant="outline" className="flex-1">
-                <Download className="h-4 w-4 mr-1" />
-                Ներբեռնել
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem>Խմբագրել</DropdownMenuItem>
-                  <DropdownMenuItem>Կիսվել</DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-600">Ջնջել</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </CardFooter>
-          </Card>
-        ))}
-      </div>
-
-      {/* Empty State */}
-      {filteredAndSortedDocuments.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12">
-          <File className="h-16 w-16 text-muted-foreground mb-4" />
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : filteredDocs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <FileIcon className="h-16 w-16 text-muted-foreground mb-4" />
           <h3 className="text-lg font-semibold">Փաստաթղթեր չեն գտնվել</h3>
           <p className="text-sm text-muted-foreground">
-            Փորձեք փոխել ֆիլտրերը կամ որոնման պայմանները
+            {docs.length === 0 ? "Սկսելու համար վերբեռնեք ձեր առաջին ֆայլը" : "Փոխեք ֆիլտրերը կամ որոնման պայմանները"}
           </p>
         </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {filteredDocs.map((doc) => {
+            const ext = getExt(doc.file_name)
+            const previewable = isImage(doc.mime_type, doc.file_name) || isPdf(doc.mime_type, doc.file_name)
+            return (
+              <Card key={doc.id} className="group hover:shadow-lg transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex flex-col items-center space-y-3">
+                    <div
+                      className="p-4 bg-muted rounded-lg cursor-pointer hover:bg-muted/70"
+                      onClick={() => previewable && handleView(doc)}
+                      title={previewable ? "Կտտացրեք դիտելու համար" : ""}
+                    >
+                      {getFileIcon(doc.file_name, doc.mime_type)}
+                    </div>
+                    <div className="w-full space-y-1.5">
+                      <h3 className="font-semibold truncate text-center text-sm" title={doc.file_name || ""}>
+                        {doc.file_name || "—"}
+                      </h3>
+                      <div className="flex flex-wrap gap-1 justify-center">
+                        {ext && <Badge variant="secondary" className="text-xs">{ext.toUpperCase()}</Badge>}
+                        <Badge variant="outline" className="text-xs">{formatBytes(doc.file_size)}</Badge>
+                      </div>
+                      <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        <span>{new Date(doc.created_at).toLocaleDateString("hy-AM")}</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter className="p-3 pt-0 flex justify-center gap-2">
+                  {previewable && (
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => handleView(doc)}>
+                      <Eye className="h-4 w-4 mr-1" />Դիտել
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" className="flex-1" onClick={() => handleDownload(doc)}>
+                    <Download className="h-4 w-4 mr-1" />Ներբեռնել
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="outline">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleDownload(doc)}>Ներբեռնել</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleDelete(doc)} className="text-red-600 focus:text-red-600">
+                        Ջնջել
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </CardFooter>
+              </Card>
+            )
+          })}
+        </div>
       )}
+
+      {/* Upload Dialog */}
+      <Dialog open={uploadOpen} onOpenChange={(o) => { if (!uploading) { setUploadOpen(o); if (!o) setSelectedFiles([]) } }}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Ավելացնել նոր փաստաթուղթ</DialogTitle>
+            <DialogDescription>Մեկ ֆայլի առավելագույն չափը՝ 10 ՄԲ</DialogDescription>
+          </DialogHeader>
+
+          <Tabs defaultValue="upload" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="upload">Վերբեռնել</TabsTrigger>
+              <TabsTrigger value="scan">Սկանավորել</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="upload" className="space-y-4 py-4">
+              <div
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                  isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                }`}
+              >
+                <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-sm font-medium mb-1">Քաշեք և թողեք ֆայլերը այստեղ</p>
+                <p className="text-xs text-muted-foreground">կամ սեղմեք ներքևի կոճակը՝ ֆայլ ընտրելու համար</p>
+              </div>
+              <div className="relative">
+                <input
+                  type="file"
+                  multiple
+                  onChange={handleFileInput}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <Button type="button" variant="outline" className="w-full h-20 flex flex-col gap-2">
+                  <Monitor className="h-8 w-8" />
+                  <span>Ընտրել համակարգչից</span>
+                </Button>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="scan" className="space-y-4 py-4">
+              <ScannerComponent onScanned={(files) => addFiles(files)} />
+            </TabsContent>
+          </Tabs>
+
+          {selectedFiles.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Ընտրված ֆայլեր ({selectedFiles.length})</p>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {selectedFiles.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between p-2 bg-muted rounded-lg">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <FileIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm truncate">{file.name}</p>
+                        <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
+                      </div>
+                    </div>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => removeSelected(index)} disabled={uploading}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => { setSelectedFiles([]); setUploadOpen(false) }} disabled={uploading}>
+                  Չեղարկել
+                </Button>
+                <Button type="button" onClick={handleUpload} disabled={uploading}>
+                  {uploading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  Վերբեռնել ({selectedFiles.length})
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Preview Dialog */}
+      <Dialog open={!!previewDoc} onOpenChange={(o) => { if (!o) { setPreviewDoc(null); setPreviewUrl(null) } }}>
+        <DialogContent className="sm:max-w-[90vw] sm:max-h-[90vh] p-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b">
+            <DialogTitle className="truncate">{previewDoc?.file_name}</DialogTitle>
+            <DialogDescription className="flex items-center gap-3 text-xs">
+              <span>{formatBytes(previewDoc?.file_size)}</span>
+              {previewDoc && (
+                <Button size="sm" variant="outline" onClick={() => handleDownload(previewDoc)}>
+                  <Download className="h-3.5 w-3.5 mr-1" /> Ներբեռնել
+                </Button>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="w-full" style={{ height: "calc(90vh - 96px)" }}>
+            {previewDoc && previewUrl ? (
+              isImage(previewDoc.mime_type, previewDoc.file_name) ? (
+                <div className="w-full h-full flex items-center justify-center bg-muted/30 overflow-auto">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={previewUrl} alt={previewDoc.file_name || ""} className="max-w-full max-h-full" />
+                </div>
+              ) : isPdf(previewDoc.mime_type, previewDoc.file_name) ? (
+                <iframe src={previewUrl} title={previewDoc.file_name || ""} className="w-full h-full border-0" />
+              ) : null
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -34,7 +34,7 @@ interface Person {
   phone: string | null
   second_phone: string | null
   address: string | null
-  position: string | null
+  position: string[] | null
   account_id: number | null
   partner_id: number | null
   partner?: Partner
@@ -65,8 +65,8 @@ function ContactCard({
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold">{fullName}</h3>
-              {contact.position && (
-                <p className="text-sm text-muted-foreground">{contact.position}</p>
+              {contact.position && contact.position.length > 0 && (
+                <p className="text-sm text-muted-foreground">{contact.position.join(", ")}</p>
               )}
               {contact.partner && (
                 <button

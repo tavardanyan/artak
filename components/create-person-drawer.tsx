@@ -26,6 +26,7 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
+import { fetchStaffPositions } from "@/lib/utils/positions"
 
 interface Partner {
   id: number
@@ -49,7 +50,8 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
   const [phone, setPhone] = useState("")
   const [secondPhone, setSecondPhone] = useState("")
   const [address, setAddress] = useState("")
-  const [position, setPosition] = useState("")
+  const [positions, setPositions] = useState<string[]>([])
+  const [availablePositions, setAvailablePositions] = useState<string[]>([])
   const [partnerId, setPartnerId] = useState("")
 
   // Account creation (only for staff)
@@ -70,6 +72,9 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
   useEffect(() => {
     if (open && type === "contact") {
       fetchPartners()
+    }
+    if (open) {
+      fetchStaffPositions(supabase).then(setAvailablePositions)
     }
   }, [open, type])
 
@@ -96,7 +101,7 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
     setPhone("")
     setSecondPhone("")
     setAddress("")
-    setPosition("")
+    setPositions([])
     setPartnerId("")
     setCreateAccount(false)
     setAccountName("")
@@ -163,7 +168,7 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
           phone: phone || null,
           second_phone: secondPhone || null,
           address: address || null,
-          position: position || null,
+          position: positions.length > 0 ? positions : null,
           account_id: accountId,
           partner_id: partnerId ? parseInt(partnerId) : null,
         }])
@@ -298,20 +303,58 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="position">Պաշտոն</Label>
-              <Select value={position} onValueChange={setPosition}>
-                <SelectTrigger id="position">
-                  <SelectValue placeholder="Ընտրել պաշտոնը" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Տնօրինություն">Տնօրինություն</SelectItem>
-                  <SelectItem value="Վարորդ">Վարորդ</SelectItem>
-                  <SelectItem value="Արհեստավոր">Արհեստավոր</SelectItem>
-                  <SelectItem value="Հաշվապահ">Հաշվապահ</SelectItem>
-                  <SelectItem value="Ինժեներ">Ինժեներ</SelectItem>
-                  <SelectItem value="Հսկիչ">Հսկիչ</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="position">Պաշտոն{type === "staff" ? " (կարող եք ընտրել մի քանիսը)" : ""}</Label>
+              {type === "staff" ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button id="position" variant="outline" role="combobox" className="w-full justify-between font-normal">
+                      <span className="truncate text-left">
+                        {positions.length > 0 ? positions.join(", ") : "Ընտրել պաշտոնը"}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Որոնել պաշտոն..." />
+                      <CommandList>
+                        <CommandEmpty>Չի գտնվել</CommandEmpty>
+                        <CommandGroup>
+                          {availablePositions.map((p) => {
+                            const checked = positions.includes(p)
+                            return (
+                              <CommandItem
+                                key={p}
+                                value={p}
+                                onSelect={() => {
+                                  setPositions((prev) => prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p])
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", checked ? "opacity-100" : "opacity-0")} />
+                                {p}
+                              </CommandItem>
+                            )
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <Select
+                  value={positions[0] || ""}
+                  onValueChange={(v) => setPositions(v ? [v] : [])}
+                >
+                  <SelectTrigger id="position">
+                    <SelectValue placeholder="Ընտրել պաշտոնը" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePositions.map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {/* Partner Selection - Only for contact */}

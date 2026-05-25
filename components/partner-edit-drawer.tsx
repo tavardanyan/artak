@@ -95,7 +95,7 @@ interface Person {
   email: string | null
   phone: string | null
   address: string | null
-  position: string | null
+  position: string[] | null
   second_phone: string | null
   nickname: string | null
   partner_id: number | null
@@ -752,10 +752,10 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
                                   {person.nickname && <span className="text-muted-foreground text-sm"> ({person.nickname})</span>}
                                 </p>
                               </div>
-                              {person.position && (
+                              {person.position && person.position.length > 0 && (
                                 <div>
                                   <p className="text-xs text-muted-foreground">Պաշտոն</p>
-                                  <p className="font-medium">{person.position}</p>
+                                  <p className="font-medium">{person.position.join(", ")}</p>
                                 </div>
                               )}
                               {person.phone && (

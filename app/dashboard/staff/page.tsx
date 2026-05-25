@@ -13,6 +13,7 @@ import { CreatePersonDrawer } from "@/components/create-person-drawer"
 import { EditPersonDrawer } from "@/components/edit-person-drawer"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatPhone } from "@/lib/utils/phone-format"
+import { fetchStaffPositions } from "@/lib/utils/positions"
 import {
   Table,
   TableBody,
@@ -33,7 +34,7 @@ interface Person {
   phone: string | null
   second_phone: string | null
   address: string | null
-  position: string | null
+  position: string[] | null
   account_id: number | null
   partner_id: number | null
 }
@@ -55,8 +56,8 @@ function StaffCard({ staff, onClick }: { staff: Person; onClick: () => void }) {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold">{fullName}</h3>
-              {staff.position && (
-                <p className="text-sm text-muted-foreground">{staff.position}</p>
+              {staff.position && staff.position.length > 0 && (
+                <p className="text-sm text-muted-foreground">{staff.position.join(", ")}</p>
               )}
             </div>
             <Badge variant="default">Աշխատակից</Badge>
@@ -101,6 +102,7 @@ export default function StaffPage() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null)
   const [positionFilter, setPositionFilter] = useState<string>("all")
+  const [availablePositions, setAvailablePositions] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [viewMode, setViewMode] = useState<"cards" | "table">("table")
   const { toast } = useToast()
@@ -108,6 +110,7 @@ export default function StaffPage() {
 
   useEffect(() => {
     fetchStaff()
+    fetchStaffPositions(supabase).then(setAvailablePositions)
   }, [])
 
   const fetchStaff = async () => {
@@ -134,7 +137,7 @@ export default function StaffPage() {
   }
 
   const filteredStaff = staff.filter((person) => {
-    if (positionFilter !== "all" && person.position !== positionFilter) return false
+    if (positionFilter !== "all" && !(person.position || []).includes(positionFilter)) return false
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
       const fullName = `${person.first_name} ${person.last_lame || ""}`.toLowerCase()
@@ -193,12 +196,9 @@ export default function StaffPage() {
       <Tabs value={positionFilter} onValueChange={setPositionFilter}>
         <TabsList>
           <TabsTrigger value="all">Բոլորը</TabsTrigger>
-          <TabsTrigger value="Տնօրինություն">Տնօրինություն</TabsTrigger>
-          <TabsTrigger value="Վարորդ">Վարորդ</TabsTrigger>
-          <TabsTrigger value="Արհեստավոր">Արհեստավոր</TabsTrigger>
-          <TabsTrigger value="Հաշվապահ">Հաշվապահ</TabsTrigger>
-          <TabsTrigger value="Ինժեներ">Ինժեներ</TabsTrigger>
-          <TabsTrigger value="Հսկիչ">Հսկիչ</TabsTrigger>
+          {availablePositions.map((p) => (
+            <TabsTrigger key={p} value={p}>{p}</TabsTrigger>
+          ))}
         </TabsList>
       </Tabs>
 
@@ -255,7 +255,7 @@ export default function StaffPage() {
                     >
                       <TableCell>{fullName}</TableCell>
                       <TableCell className="font-bold">{person.nickname || "-"}</TableCell>
-                      <TableCell>{person.position || "-"}</TableCell>
+                      <TableCell>{person.position && person.position.length > 0 ? person.position.join(", ") : "-"}</TableCell>
                       <TableCell>{formatPhone(person.phone)}</TableCell>
                       <TableCell>{person.address || "-"}</TableCell>
                     </TableRow>

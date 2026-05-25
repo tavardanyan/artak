@@ -30,8 +30,13 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowUpRight, ArrowDownLeft, Plus, FileText, Image, Trash2, Loader2, Eye } from "lucide-react"
+import { ArrowUpRight, ArrowDownLeft, Plus, FileText, Image, Trash2, Loader2, Eye, ChevronsUpDown, Check } from "lucide-react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { cn } from "@/lib/utils"
+import { fetchStaffPositions } from "@/lib/utils/positions"
+import { uuidv4 } from "@/lib/utils/uuid"
 
 interface Partner {
   id: number
@@ -50,7 +55,7 @@ interface Person {
   phone: string | null
   second_phone: string | null
   address: string | null
-  position: string | null
+  position: string[] | null
   account_id: number | null
   partner_id: number | null
 }
@@ -151,7 +156,8 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
   const [phone, setPhone] = useState(person.phone || "")
   const [secondPhone, setSecondPhone] = useState(person.second_phone || "")
   const [address, setAddress] = useState(person.address || "")
-  const [position, setPosition] = useState(person.position || "")
+  const [positions, setPositions] = useState<string[]>(Array.isArray(person.position) ? person.position : (person.position ? [person.position as unknown as string] : []))
+  const [availablePositions, setAvailablePositions] = useState<string[]>([])
   const [partnerId, setPartnerId] = useState(person.partner_id?.toString() || "")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -179,7 +185,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
     setPhone(person.phone || "")
     setSecondPhone(person.second_phone || "")
     setAddress(person.address || "")
-    setPosition(person.position || "")
+    setPositions(Array.isArray(person.position) ? person.position : (person.position ? [person.position as unknown as string] : []))
     setPartnerId(person.partner_id?.toString() || "")
   }, [person])
 
@@ -187,6 +193,9 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
   useEffect(() => {
     if (open && person.type === "contact") {
       fetchPartners()
+    }
+    if (open) {
+      fetchStaffPositions(supabase).then(setAvailablePositions)
     }
   }, [open, person.type])
 
@@ -282,7 +291,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
   const handleUploadDocument = async (file: File, docType: string) => {
     setUploading(true)
     try {
-      const fileId = crypto.randomUUID()
+      const fileId = uuidv4()
       const ext = file.name.split(".").pop()
       const filePath = `documents/person/${person.id}/${fileId}.${ext}`
 
@@ -375,7 +384,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
           phone: phone || null,
           second_phone: secondPhone || null,
           address: address || null,
-          position: position || null,
+          position: positions.length > 0 ? positions : null,
           partner_id: partnerId ? parseInt(partnerId) : null,
         })
         .eq("id", person.id)
@@ -509,20 +518,58 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="position">Պաշտոն</Label>
-              <Select value={position} onValueChange={setPosition}>
-                <SelectTrigger id="position">
-                  <SelectValue placeholder="Ընտրել պաշտոնը" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Տնօրինություն">Տնօրինություն</SelectItem>
-                  <SelectItem value="Վարորդ">Վարորդ</SelectItem>
-                  <SelectItem value="Արհեստավոր">Արհեստավոր</SelectItem>
-                  <SelectItem value="Հաշվապահ">Հաշվապահ</SelectItem>
-                  <SelectItem value="Ինժեներ">Ինժեներ</SelectItem>
-                  <SelectItem value="Հսկիչ">Հսկիչ</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="position">Պաշտոն{person.type === "staff" ? " (կարող եք ընտրել մի քանիսը)" : ""}</Label>
+              {person.type === "staff" ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button id="position" variant="outline" role="combobox" className="w-full justify-between font-normal">
+                      <span className="truncate text-left">
+                        {positions.length > 0 ? positions.join(", ") : "Ընտրել պաշտոնը"}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Որոնել պաշտոն..." />
+                      <CommandList>
+                        <CommandEmpty>Չի գտնվել</CommandEmpty>
+                        <CommandGroup>
+                          {availablePositions.map((p) => {
+                            const checked = positions.includes(p)
+                            return (
+                              <CommandItem
+                                key={p}
+                                value={p}
+                                onSelect={() => {
+                                  setPositions((prev) => prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p])
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", checked ? "opacity-100" : "opacity-0")} />
+                                {p}
+                              </CommandItem>
+                            )
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <Select
+                  value={positions[0] || ""}
+                  onValueChange={(v) => setPositions(v ? [v] : [])}
+                >
+                  <SelectTrigger id="position">
+                    <SelectValue placeholder="Ընտրել պաշտոնը" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePositions.map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {/* Partner Selection - Only for contact */}

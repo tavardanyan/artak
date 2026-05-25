@@ -318,9 +318,10 @@ export function AppSidebar() {
                           <SidebarMenuButton
                             asChild
                             isActive={pathname === `/dashboard/projects/${project.id}`}
+                            className="h-auto min-h-8 items-start py-1.5 [&>span:last-child]:!whitespace-normal [&>span:last-child]:line-clamp-2 [&>span:last-child]:leading-snug"
                           >
                             <a href={`/dashboard/projects/${project.id}`}>
-                              <Folder />
+                              <Folder className="mt-0.5" />
                               <span>{project.name}</span>
                             </a>
                           </SidebarMenuButton>
@@ -330,10 +331,10 @@ export function AppSidebar() {
                             <SidebarMenuButton
                               asChild
                               isActive={pathname === `/dashboard/projects/${sub.id}`}
-                              className="pl-8"
+                              className="pl-8 h-auto min-h-8 items-start py-1.5 [&>span:last-child]:!whitespace-normal [&>span:last-child]:line-clamp-2 [&>span:last-child]:leading-snug"
                             >
                               <a href={`/dashboard/projects/${sub.id}`}>
-                                <Folder className="h-3 w-3" />
+                                <Folder className="h-3 w-3 mt-0.5" />
                                 <span className="text-sm">{sub.name}</span>
                               </a>
                             </SidebarMenuButton>
