@@ -33,10 +33,12 @@ interface TaskDrawerProps {
   onOpenChange: (open: boolean) => void
   task?: Task | null
   defaultDay?: Date
+  defaultProjectId?: number | null
+  defaultTitle?: string
   onSuccess?: () => void
 }
 
-export function TaskDrawer({ open, onOpenChange, task, defaultDay, onSuccess }: TaskDrawerProps) {
+export function TaskDrawer({ open, onOpenChange, task, defaultDay, defaultProjectId, defaultTitle, onSuccess }: TaskDrawerProps) {
   const [title, setTitle] = useState("")
   const [text, setText] = useState("")
   const [projectId, setProjectId] = useState<string>("none")
@@ -58,14 +60,14 @@ export function TaskDrawer({ open, onOpenChange, task, defaultDay, onSuccess }: 
         setDay(new Date(task.day).toISOString().split("T")[0])
         setSeen(task.seen)
       } else {
-        setTitle("")
+        setTitle(defaultTitle || "")
         setText("")
-        setProjectId("none")
+        setProjectId(defaultProjectId != null ? defaultProjectId.toString() : "none")
         setDay(defaultDay ? defaultDay.toISOString().split("T")[0] : new Date().toISOString().split("T")[0])
         setSeen(false)
       }
     }
-  }, [open, task, defaultDay])
+  }, [open, task, defaultDay, defaultProjectId, defaultTitle])
 
   const fetchProjects = async () => {
     const { data } = await supabase

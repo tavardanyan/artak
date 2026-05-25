@@ -13,6 +13,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Check, ChevronsUpDown } from "lucide-react"
+import { cn } from "@/lib/utils"
 import {
   Sheet,
   SheetContent,
@@ -57,6 +61,7 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
   const [accountCurrency, setAccountCurrency] = useState("amd")
 
   const [partners, setPartners] = useState<Partner[]>([])
+  const [partnerPopoverOpen, setPartnerPopoverOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const supabase = createClient()
@@ -313,22 +318,45 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
             {type === "contact" && (
               <div className="space-y-2">
                 <Label htmlFor="partner">Գործընկեր (ոչ պարտադիր)</Label>
-                <Select value={partnerId} onValueChange={setPartnerId}>
-                  <SelectTrigger id="partner">
-                    <SelectValue placeholder="Ընտրել գործընկերը" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {partners.length === 0 ? (
-                      <SelectItem value="empty" disabled>Գործընկերներ չկան</SelectItem>
-                    ) : (
-                      partners.map((partner) => (
-                        <SelectItem key={partner.id} value={partner.id.toString()}>
-                          {partner.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                <Popover open={partnerPopoverOpen} onOpenChange={setPartnerPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      id="partner"
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={partnerPopoverOpen}
+                      className="w-full justify-between font-normal"
+                    >
+                      {partnerId
+                        ? partners.find((p) => p.id.toString() === partnerId)?.name || "Ընտրել գործընկերը"
+                        : "Ընտրել գործընկերը"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                    <Command>
+                      <CommandInput placeholder="Որոնել գործընկեր..." />
+                      <CommandList>
+                        <CommandEmpty>Գործընկեր չի գտնվել</CommandEmpty>
+                        <CommandGroup>
+                          {partners.map((partner) => (
+                            <CommandItem
+                              key={partner.id}
+                              value={partner.name}
+                              onSelect={() => {
+                                setPartnerId(partner.id.toString())
+                                setPartnerPopoverOpen(false)
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", partnerId === partner.id.toString() ? "opacity-100" : "opacity-0")} />
+                              {partner.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
             )}
           </div>

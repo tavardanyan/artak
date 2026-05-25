@@ -154,6 +154,9 @@ export async function matchAndLinkInvoiceItems(
           const newCode = generateItemCode(invoiceItem.name, existingCodes)
           existingCodes.push(newCode) // Add to list to avoid duplicates
 
+          let resolvedItemId: number | null = null
+          let resolvedCode = newCode
+
           const { data: newItem, error: createError } = await supabase
             .from("item")
             .insert({
@@ -165,18 +168,37 @@ export async function matchAndLinkInvoiceItems(
             .single()
 
           if (createError) {
-            console.error(`[Transfer] Error creating item:`, createError)
-            errors.push(`Failed to create item "${invoiceItem.name}": ${createError.message}`)
-            continue
+            // Item with this name already exists (race / stale local cache / etc.) — fetch it
+            if ((createError as any).code === "23505") {
+              const { data: existing } = await supabase
+                .from("item")
+                .select("id, name, code, unit")
+                .eq("name", invoiceItem.name)
+                .maybeSingle()
+              if (existing) {
+                console.log(`[Transfer] Item already exists, reusing: ${invoiceItem.name} (ID: ${existing.id})`)
+                resolvedItemId = existing.id
+                resolvedCode = existing.code
+                items.push(existing)
+              } else {
+                errors.push(`Failed to create item "${invoiceItem.name}": ${createError.message}`)
+                continue
+              }
+            } else {
+              console.error(`[Transfer] Error creating item:`, createError)
+              errors.push(`Failed to create item "${invoiceItem.name}": ${createError.message}`)
+              continue
+            }
+          } else if (newItem) {
+            console.log(`[Transfer] ✓ Created new item: ${invoiceItem.name} (ID: ${newItem.id}, Code: ${newCode})`)
+            resolvedItemId = newItem.id
+            items.push({ ...newItem, name: invoiceItem.name, code: newCode, unit: invoiceItem.unit || "հատ" })
           }
 
-          if (newItem) {
-            console.log(`[Transfer] ✓ Created new item: ${invoiceItem.name} (ID: ${newItem.id}, Code: ${newCode})`)
-
-            // Update invoice_item with the new item_id
+          if (resolvedItemId != null) {
             const { error: updateError } = await supabase
               .from("invoice_items")
-              .update({ item_id: newItem.id })
+              .update({ item_id: resolvedItemId })
               .eq("invoice_id", invoiceId)
               .eq("seq_no", invoiceItem.seq_no)
 
@@ -185,7 +207,6 @@ export async function matchAndLinkInvoiceItems(
               errors.push(`Failed to link new item "${invoiceItem.name}": ${updateError.message}`)
             } else {
               createdCount++
-              items.push({ ...newItem, name: invoiceItem.name, code: newCode, unit: invoiceItem.unit || "հատ" })
             }
           }
         }
@@ -296,12 +317,29 @@ export async function createTransferFromInvoice(
     console.log(`[Transfer] ✓ Created transfer ${transfer.id}`)
 
     // Create transfer_item records using finalItemId (parent if exists, otherwise original item)
-    const transferItems = itemsWithParents.map((item) => ({
-      item_id: item.finalItemId!,
+    // Deduplicate by item_id (PK is composite item_id+transfer_id) — merge qty + weighted prices
+    const mergedByItem = new Map<number, { qty: number; total_value: number; total_vat: number }>()
+    for (const item of itemsWithParents) {
+      const itemId = item.finalItemId!
+      const qty = item.quantity || 0
+      const value = qty * (item.unit_price || 0)
+      const vat = item.vat_amount || 0
+      const existing = mergedByItem.get(itemId)
+      if (existing) {
+        existing.qty += qty
+        existing.total_value += value
+        existing.total_vat += vat
+      } else {
+        mergedByItem.set(itemId, { qty, total_value: value, total_vat: vat })
+      }
+    }
+
+    const transferItems = Array.from(mergedByItem.entries()).map(([itemId, agg]) => ({
+      item_id: itemId,
       transfer_id: transfer.id,
-      qty: item.quantity || 0,
-      unit_price: item.unit_price || 0,
-      unit_vat: item.vat_amount ? item.vat_amount / (item.quantity || 1) : 0,
+      qty: agg.qty,
+      unit_price: agg.qty > 0 ? agg.total_value / agg.qty : 0,
+      unit_vat: agg.qty > 0 ? agg.total_vat / agg.qty : 0,
     }))
 
     const { error: itemsError } = await supabase.from("transfer_item").insert(transferItems)

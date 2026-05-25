@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
+import { TaskDrawer } from "@/components/task-drawer"
 
 interface Partner {
   id: number
@@ -58,6 +59,9 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
   const [partnerWarehouses, setPartnerWarehouses] = useState<PartnerWarehouse[]>([])
   const [warehouseChoice, setWarehouseChoice] = useState<string>("") // warehouse id as string, or "new"
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false)
+  const [createdProjectId, setCreatedProjectId] = useState<number | null>(null)
+  const [reminderDay, setReminderDay] = useState<Date | undefined>(undefined)
 
   const supabase = createClient()
   const { toast } = useToast()
@@ -228,8 +232,17 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
         onSuccess()
       }
 
-      // Navigate to the project page if data is available
-      if (data && data[0]) {
+      // If end date is set, open task drawer to create an "end approaching" reminder
+      // 14 days before the project end. Navigation to the project page is deferred
+      // until the task drawer closes.
+      if (data && data[0] && endDate) {
+        const end = new Date(endDate)
+        const reminder = new Date(end)
+        reminder.setDate(reminder.getDate() - 14)
+        setCreatedProjectId(data[0].id)
+        setReminderDay(reminder)
+        setTaskDrawerOpen(true)
+      } else if (data && data[0]) {
         router.push(`/dashboard/projects/${data[0].id}`)
       }
     } catch (error) {
@@ -421,6 +434,21 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
           </Button>
         </SheetFooter>
       </SheetContent>
+      <TaskDrawer
+        open={taskDrawerOpen}
+        onOpenChange={(o) => {
+          setTaskDrawerOpen(o)
+          if (!o && createdProjectId) {
+            const pid = createdProjectId
+            setCreatedProjectId(null)
+            setReminderDay(undefined)
+            router.push(`/dashboard/projects/${pid}`)
+          }
+        }}
+        defaultDay={reminderDay}
+        defaultProjectId={createdProjectId}
+        defaultTitle="Նախագծի ավարտը մոտենում է"
+      />
     </Sheet>
   )
 }

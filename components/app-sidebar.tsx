@@ -21,6 +21,7 @@ import {
   AlertCircle,
   TruckIcon,
   PackageCheck,
+  UserCog,
 } from "lucide-react"
 
 import {
@@ -104,6 +105,11 @@ const mainNavItems = [
     title: "Հարկային ծառայություն",
     url: "/dashboard/taxservice",
     icon: Receipt,
+  },
+  {
+    title: "Օգտատերեր",
+    url: "/dashboard/users",
+    icon: UserCog,
   },
   {
     title: "Կարգավորումներ",

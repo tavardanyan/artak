@@ -22,6 +22,7 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
+import { TaskDrawer } from "@/components/task-drawer"
 
 interface Partner {
   id: number
@@ -73,6 +74,11 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
   )
   const [status, setStatus] = useState(project.status)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [originalEndDate, setOriginalEndDate] = useState(
+    project.end ? new Date(project.end).toISOString().split("T")[0] : ""
+  )
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false)
+  const [reminderDay, setReminderDay] = useState<Date | undefined>(undefined)
 
   const supabase = createClient()
   const { toast } = useToast()
@@ -90,6 +96,7 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
     setBudget(project.budget ? handleNumberInput(project.budget.toString()) : "")
     setStatus(project.status)
     setParentProjectId(project.parent_project?.toString() || "none")
+    setOriginalEndDate(project.end ? new Date(project.end).toISOString().split("T")[0] : "")
   }, [project])
 
   useEffect(() => {
@@ -174,10 +181,23 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
         description: "Նախագիծը հաջողությամբ թարմացվեց",
       })
 
+      const endDateChanged = endDate && endDate !== originalEndDate
+
       onOpenChange(false)
 
       if (onSuccess) {
         onSuccess()
+      }
+
+      // If the end date was changed to a non-empty value, prompt the user with
+      // a prefilled "end approaching" task 14 days before the new end date.
+      if (endDateChanged) {
+        const end = new Date(endDate)
+        const reminder = new Date(end)
+        reminder.setDate(reminder.getDate() - 14)
+        setReminderDay(reminder)
+        setOriginalEndDate(endDate)
+        setTaskDrawerOpen(true)
       }
     } catch (error) {
       console.error("Error:", error)
@@ -357,6 +377,13 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
           </Button>
         </SheetFooter>
       </SheetContent>
+      <TaskDrawer
+        open={taskDrawerOpen}
+        onOpenChange={setTaskDrawerOpen}
+        defaultDay={reminderDay}
+        defaultProjectId={project.id}
+        defaultTitle="Նախագծի ավարտը մոտենում է"
+      />
     </Sheet>
   )
 }
