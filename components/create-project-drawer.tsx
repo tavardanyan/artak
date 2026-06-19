@@ -24,6 +24,12 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
 import { TaskDrawer } from "@/components/task-drawer"
+import {
+  ProjectOversightFields,
+  EMPTY_OVERSIGHT,
+  oversightToStorage,
+  type Oversight,
+} from "@/components/project-oversight-fields"
 
 interface Partner {
   id: number
@@ -62,6 +68,7 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false)
   const [createdProjectId, setCreatedProjectId] = useState<number | null>(null)
   const [reminderDay, setReminderDay] = useState<Date | undefined>(undefined)
+  const [oversight, setOversight] = useState<Oversight>(EMPTY_OVERSIGHT)
 
   const supabase = createClient()
   const { toast } = useToast()
@@ -194,6 +201,7 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
           agreement_date: agreementDate ? new Date(agreementDate).toISOString() : null,
           budget: budget ? parseFormattedNumber(budget) : null,
           status: "active",
+          oversight: oversightToStorage(oversight),
         })
         .select()
 
@@ -223,6 +231,7 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
       setAgreementDate("")
       setBudget("")
       setParentProjectId("none")
+      setOversight(EMPTY_OVERSIGHT)
       setWarehouseChoice("")
       setPartnerWarehouses([])
 
@@ -259,7 +268,7 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="overflow-y-auto w-full sm:max-w-[50vw]">
         <SheetHeader>
           <SheetTitle>Ստեղծել նախագիծ</SheetTitle>
           <SheetDescription>
@@ -267,7 +276,8 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
           </SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-4 py-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-6">
+          <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">
               Անվանում <span className="text-destructive">*</span>
@@ -418,6 +428,11 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
               value={budget}
               onChange={(e) => setBudget(handleNumberInput(e.target.value))}
             />
+          </div>
+          </div>
+
+          <div className="space-y-4">
+            <ProjectOversightFields value={oversight} onChange={setOversight} />
           </div>
         </div>
 

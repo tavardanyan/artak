@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/sheet"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Warehouse as WarehouseIcon, MapPin, Package, Pencil } from "lucide-react"
+import { Plus, Warehouse as WarehouseIcon, MapPin, Package, Pencil, Search } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { WarehouseContent } from "@/components/warehouse-content"
@@ -44,6 +44,7 @@ function WarehousePageContent() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [warehouseFilter, setWarehouseFilter] = useState<"main" | "partner" | "supplier">("main")
+  const [warehouseSearch, setWarehouseSearch] = useState("")
   const [initialTransferData, setInitialTransferData] = useState<any>(null)
   const { toast } = useToast()
 
@@ -264,32 +265,44 @@ function WarehousePageContent() {
           </TabsList>
         </Tabs>
 
-        {/* Warehouse List */}
+        {/* Search */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Փնտրել անվան կամ հասցեի մեջ..."
+            value={warehouseSearch}
+            onChange={(e) => setWarehouseSearch(e.target.value)}
+            className="pl-9 h-9"
+          />
+        </div>
+
+        {(() => {
+          const q = warehouseSearch.trim().toLowerCase()
+          const filtered = warehouses.filter((w) => {
+            if (warehouseFilter === "main" && (w.type === "partner" || w.type === "supplier")) return false
+            if (warehouseFilter === "partner" && w.type !== "partner") return false
+            if (warehouseFilter === "supplier" && w.type !== "supplier") return false
+            if (q && !(w.name?.toLowerCase().includes(q) || w.address?.toLowerCase().includes(q))) return false
+            return true
+          })
+          return (
         <div className="space-y-2 overflow-y-auto flex-1">
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <p className="text-muted-foreground">Բեռնում...</p>
             </div>
-          ) : warehouses.filter(w => {
-            if (warehouseFilter === "main") return w.type !== "partner" && w.type !== "supplier"
-            if (warehouseFilter === "partner") return w.type === "partner"
-            if (warehouseFilter === "supplier") return w.type === "supplier"
-            return true
-          }).length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-32 text-center">
               <WarehouseIcon className="h-12 w-12 text-muted-foreground mb-2" />
-              <p className="text-muted-foreground">Պահեստներ չկան</p>
-              <p className="text-xs text-muted-foreground">
-                Սեղմեք ներքևի կոճակը՝ ավելացնելու համար
-              </p>
+              <p className="text-muted-foreground">{q ? "Արդյունքներ չկան" : "Պահեստներ չկան"}</p>
+              {!q && (
+                <p className="text-xs text-muted-foreground">
+                  Սեղմեք ներքևի կոճակը՝ ավելացնելու համար
+                </p>
+              )}
             </div>
           ) : (
-            warehouses.filter(w => {
-              if (warehouseFilter === "main") return w.type !== "partner" && w.type !== "supplier"
-              if (warehouseFilter === "partner") return w.type === "partner"
-              if (warehouseFilter === "supplier") return w.type === "supplier"
-              return true
-            }).map((warehouse) => (
+            filtered.map((warehouse) => (
               <Card
                 key={warehouse.id}
                 className={`cursor-pointer transition-colors hover:bg-accent ${
@@ -397,6 +410,8 @@ function WarehousePageContent() {
             </SheetContent>
           </Sheet>
         </div>
+        )
+        })()}
       </div>
 
       {/* Main content area */}

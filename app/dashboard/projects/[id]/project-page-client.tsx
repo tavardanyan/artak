@@ -90,6 +90,7 @@ interface Project {
   budget: number | null
   status: string
   created_at: string
+  oversight?: any
   warehouse?: { id: number; name: string }
   partner?: {
     id: number
@@ -1272,6 +1273,45 @@ export default function ProjectPageClient({
               </CardContent>
             </Card>
           </div>
+
+          {/* Oversight inspectors */}
+          {(() => {
+            const ov = project.oversight as any
+            const hasAny = (p: any) => p && (p.name || p.tin || p.number || p.director || p.contact)
+            const tech = ov?.technical
+            const author = ov?.author
+            if (!hasAny(tech) && !hasAny(author)) return null
+
+            const Field = ({ label, value }: { label: string; value?: string | null }) => (
+              <div>
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-sm mt-0.5">{value || "—"}</p>
+              </div>
+            )
+            const PersonBlock = ({ title, p }: { title: string; p: any }) => (
+              <div>
+                <h4 className="font-medium text-sm mb-3">{title}</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2"><Field label="Անվանում" value={p?.name} /></div>
+                  <Field label="ՀՎՀՀ" value={p?.tin} />
+                  <Field label="Համար" value={p?.number} />
+                  <Field label="Տնօրեն" value={p?.director} />
+                  <Field label="Կոնտակտ" value={p?.contact} />
+                </div>
+              </div>
+            )
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Հսկիչներ</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {hasAny(tech) && <PersonBlock title="Տեխնիկական հսկիչ" p={tech} />}
+                  {hasAny(author) && <PersonBlock title="Հեղինակային հսկիչ" p={author} />}
+                </CardContent>
+              </Card>
+            )
+          })()}
 
         </TabsContent>
 

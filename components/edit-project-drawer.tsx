@@ -23,6 +23,13 @@ import {
 } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
 import { TaskDrawer } from "@/components/task-drawer"
+import {
+  ProjectOversightFields,
+  EMPTY_OVERSIGHT,
+  normalizeOversight,
+  oversightToStorage,
+  type Oversight,
+} from "@/components/project-oversight-fields"
 
 interface Partner {
   id: number
@@ -42,6 +49,7 @@ interface Project {
   agreement_date: string | null
   budget: number | null
   status: string
+  oversight?: any
 }
 
 interface EditProjectDrawerProps {
@@ -73,6 +81,7 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
     project.budget ? handleNumberInput(project.budget.toString()) : ""
   )
   const [status, setStatus] = useState(project.status)
+  const [oversight, setOversight] = useState<Oversight>(normalizeOversight(project.oversight))
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [originalEndDate, setOriginalEndDate] = useState(
     project.end ? new Date(project.end).toISOString().split("T")[0] : ""
@@ -97,6 +106,7 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
     setStatus(project.status)
     setParentProjectId(project.parent_project?.toString() || "none")
     setOriginalEndDate(project.end ? new Date(project.end).toISOString().split("T")[0] : "")
+    setOversight(normalizeOversight(project.oversight))
   }, [project])
 
   useEffect(() => {
@@ -163,6 +173,7 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
           agreement_date: agreementDate ? new Date(agreementDate).toISOString() : null,
           budget: budget ? parseFormattedNumber(budget) : null,
           status,
+          oversight: oversightToStorage(oversight),
         })
         .eq("id", project.id)
 
@@ -213,7 +224,7 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="overflow-y-auto w-full sm:max-w-[50vw]">
         <SheetHeader>
           <SheetTitle>Խմբագրել նախագիծը</SheetTitle>
           <SheetDescription>
@@ -221,7 +232,8 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
           </SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-4 py-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-6">
+          <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">
               Անվանում <span className="text-destructive">*</span>
@@ -361,6 +373,11 @@ export function EditProjectDrawer({ open, onOpenChange, project, onSuccess }: Ed
               value={budget}
               onChange={(e) => setBudget(handleNumberInput(e.target.value))}
             />
+          </div>
+          </div>
+
+          <div className="space-y-4">
+            <ProjectOversightFields value={oversight} onChange={setOversight} />
           </div>
         </div>
 

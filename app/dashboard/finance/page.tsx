@@ -25,7 +25,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Wallet, Building2, Pencil } from "lucide-react"
+import { Plus, Wallet, Building2, Pencil, Search } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { FinanceContent } from "@/components/finance-content"
 
@@ -48,6 +48,7 @@ function FinancePageContent() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [accountFilter, setAccountFilter] = useState<"internal" | "external">("internal")
+  const [accountSearch, setAccountSearch] = useState("")
   const [externalSubFilter, setExternalSubFilter] = useState<"all" | "partners" | "staff">("all")
   const { toast } = useToast()
 
@@ -279,16 +280,23 @@ function FinancePageContent() {
     return currencies[currency.toLowerCase()] || currency.toUpperCase()
   }
 
-  // Filter accounts based on internal/external
+  // Filter accounts based on internal/external + free-text search
   const filteredAccounts = accounts.filter(account => {
-    if (accountFilter === "internal") return account.internal
-    // External accounts
-    if (!account.internal) {
-      if (externalSubFilter === "all") return true
-      if (externalSubFilter === "staff") return account._linkedTo === "staff"
-      if (externalSubFilter === "partners") return account._linkedTo !== "staff"
+    let pass = false
+    if (accountFilter === "internal") pass = !!account.internal
+    else if (!account.internal) {
+      if (externalSubFilter === "all") pass = true
+      else if (externalSubFilter === "staff") pass = account._linkedTo === "staff"
+      else if (externalSubFilter === "partners") pass = account._linkedTo !== "staff"
     }
-    return false
+    if (!pass) return false
+    const q = accountSearch.trim().toLowerCase()
+    if (!q) return true
+    return (
+      (account.name || "").toLowerCase().includes(q) ||
+      (account.bank || "").toLowerCase().includes(q) ||
+      (account.number || "").toLowerCase().includes(q)
+    )
   })
 
   return (
@@ -314,6 +322,17 @@ function FinancePageContent() {
               </TabsList>
             </Tabs>
           )}
+
+          {/* Search */}
+          <div className="relative mt-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Փնտրել անվան, բանկի կամ համարի մեջ..."
+              value={accountSearch}
+              onChange={(e) => setAccountSearch(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
         </div>
 
         {/* Account List */}
@@ -326,11 +345,17 @@ function FinancePageContent() {
             <div className="flex flex-col items-center justify-center h-32 text-center">
               <Wallet className="h-12 w-12 text-muted-foreground mb-2" />
               <p className="text-muted-foreground">
-                {accountFilter === "internal" ? "Ներքին հաշիվներ չկան" : "Հաշիվներ չկան"}
+                {accountSearch.trim()
+                  ? "Արդյունքներ չկան"
+                  : accountFilter === "internal"
+                    ? "Ներքին հաշիվներ չկան"
+                    : "Հաշիվներ չկան"}
               </p>
-              <p className="text-xs text-muted-foreground">
-                Սեղմեք ներքևի կոճակը՝ ավելացնելու համար
-              </p>
+              {!accountSearch.trim() && (
+                <p className="text-xs text-muted-foreground">
+                  Սեղմեք ներքևի կոճակը՝ ավելացնելու համար
+                </p>
+              )}
             </div>
           ) : (
             filteredAccounts.map((account) => (
