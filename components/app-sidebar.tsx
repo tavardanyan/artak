@@ -144,10 +144,19 @@ export function AppSidebar() {
   }, [])
 
   const fetchUncheckedCounts = async () => {
+    // Default destination warehouse — used to count "unchecked transfers".
+    // Falls back to 1 (the "Անհայտ" warehouse) if not configured.
+    const { data: wSetting } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "default_transfer_warehouse")
+      .maybeSingle()
+    const defaultWarehouseId = wSetting?.value ? Number(wSetting.value) : 1
+
     const [items, invoices, transfers, draftTransfers] = await Promise.all([
       supabase.from("item").select("*", { count: "exact", head: true }).is("parent", null).or("seen.is.null,seen.eq.false"),
       supabase.from("invoice").select("*", { count: "exact", head: true }).eq("seen", false),
-      supabase.from("transfer").select("*", { count: "exact", head: true }).eq("to", 114),
+      supabase.from("transfer").select("*", { count: "exact", head: true }).eq("to", defaultWarehouseId),
       supabase.from("transfer").select("*", { count: "exact", head: true }).is("delivered_at", null).is("acepted_at", null).is("rejected_at", null),
     ])
     setUncheckedCounts({

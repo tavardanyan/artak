@@ -18,7 +18,7 @@ interface Transfer {
   invoice_id: string | null
   from_warehouse?: { name: string }
   to_warehouse?: { name: string }
-  invoice?: { destination_address: string | null } | null
+  invoice?: { destination_address: string | null; issued_at: string | null; delivered_at: string | null; created_at: string | null } | null
   transfer_item?: Array<{ qty: number; unit_price: number; unit_vat: number }>
 }
 
@@ -79,7 +79,7 @@ export default function UncheckedTransfersPage() {
           id, created_at, from, to, invoice_id,
           from_warehouse:warehouse!transfer_from_fkey(name),
           to_warehouse:warehouse!transfer_to_fkey(name),
-          invoice:invoice!transfer_invoice_id_fkey(destination_address),
+          invoice:invoice!transfer_invoice_id_fkey(destination_address, issued_at, delivered_at, created_at),
           transfer_item(qty, unit_price, unit_vat)
         `)
         .eq("to", wid)
@@ -148,7 +148,7 @@ export default function UncheckedTransfersPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="text-xs">
-                    <TableHead className="w-[12%] py-2">Ա/թ</TableHead>
+                    <TableHead className="w-[12%] py-2">Թողարկման ամսաթիվ</TableHead>
                     <TableHead className="w-[20%] py-2">Որտեղից</TableHead>
                     <TableHead className="w-[22%] py-2">Հասցե</TableHead>
                     <TableHead className="w-[14%] py-2 text-right">Ընդամենը</TableHead>
@@ -162,7 +162,7 @@ export default function UncheckedTransfersPage() {
                     const total = (transfer.transfer_item || []).reduce((s, ti) => s + (ti.qty || 0) * ((ti.unit_price || 0) + (ti.unit_vat || 0)), 0)
                     return (
                       <TableRow key={transfer.id} className="text-xs">
-                        <TableCell className="py-2">{formatDate(transfer.created_at)}</TableCell>
+                        <TableCell className="py-2">{formatDate(transfer.invoice?.issued_at || transfer.invoice?.delivered_at || transfer.invoice?.created_at || transfer.created_at)}</TableCell>
                         <TableCell className="py-2">{transfer.from_warehouse?.name || `ID: ${transfer.from}`}</TableCell>
                         <TableCell
                           className={`py-2 ${transfer.invoice_id ? 'cursor-pointer hover:underline text-blue-600' : ''}`}
