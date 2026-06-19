@@ -21,7 +21,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, Calendar, Package } from "lucide-react"
+import { Loader2, Calendar, Package, Folder, FileText, ExternalLink } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 interface TransferItem {
   item_id: number
@@ -34,6 +35,19 @@ interface TransferItem {
   }
 }
 
+interface ContractLink {
+  id: number
+  description: string | null
+  price: number | null
+  qty: number | null
+  unit: string | null
+  total: number | null
+  status: string | null
+  start: string | null
+  end: string | null
+  person_id: number | null
+}
+
 interface Transaction {
   id: number
   from: number
@@ -43,8 +57,11 @@ interface Transaction {
   created_at: string
   accepted_at: string | null
   rejected_at: string | null
+  project_id: number | null
   from_account?: { name: string; type: string; currency: string }
   to_account?: { name: string; type: string; currency: string }
+  project?: { id: number; name: string; code: string } | null
+  contracts?: ContractLink[]
   transfer?: {
     id: number
     created_at: string
@@ -84,6 +101,7 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
 
   const { toast } = useToast()
   const supabase = createClient()
+  const router = useRouter()
 
   useEffect(() => {
     if (open && transactionId) {
@@ -97,18 +115,29 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
     try {
       setLoading(true)
 
-      // Fetch transaction details
+      // Fetch transaction details (with project + linked contracts)
       const { data: txData, error: txError } = await supabase
         .from("transaction")
         .select(`
           *,
           from_account:account!transaction_from_fkey(name, type, currency),
-          to_account:account!transaction_to_fkey(name, type, currency)
+          to_account:account!transaction_to_fkey(name, type, currency),
+          project:project!transaction_project_id_fkey(id, name, code),
+          contract_transaction(
+            contract:contract!contract_transaction_contact_id_fkey(
+              id, description, price, qty, unit, total, status, start, "end", person_id
+            )
+          )
         `)
         .eq("id", transactionId)
         .single()
 
       if (txError) throw txError
+
+      // Flatten contract_transaction[].contract into transaction.contracts[]
+      const contracts: ContractLink[] = ((txData as any)?.contract_transaction || [])
+        .map((row: any) => row?.contract)
+        .filter(Boolean)
 
       // Fetch transfer information if exists (where transaction_id matches)
       const { data: transferData, error: transferError } = await supabase
@@ -144,7 +173,8 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
       // Combine transaction with transfer data
       setTransaction({
         ...txData,
-        transfer: transferData
+        transfer: transferData,
+        contracts,
       })
     } catch (error) {
       console.error("Error fetching transaction data:", error)
@@ -336,6 +366,98 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
                 )}
               </CardContent>
             </Card>
+
+            {/* Project + linked contracts */}
+            {(transaction.project || (transaction.contracts && transaction.contracts.length > 0)) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Folder className="h-4 w-4" />
+                    Նախագիծ և պայմանագիր
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {transaction.project && (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs text-muted-foreground">Նախագիծ</p>
+                        <p className="text-sm font-medium truncate">
+                          {transaction.project.name}
+                          {transaction.project.code && (
+                            <span className="text-muted-foreground"> ({transaction.project.code})</span>
+                          )}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 shrink-0"
+                        onClick={() => {
+                          onOpenChange(false)
+                          router.push(`/dashboard/projects/${transaction.project!.id}`)
+                        }}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                        Բացել
+                      </Button>
+                    </div>
+                  )}
+
+                  {transaction.contracts && transaction.contracts.length > 0 && (
+                    <div className={transaction.project ? "pt-3 border-t" : ""}>
+                      <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                        <FileText className="h-3.5 w-3.5" />
+                        Կապված պայմանագրեր ({transaction.contracts.length})
+                      </p>
+                      <div className="space-y-2">
+                        {transaction.contracts.map((c) => (
+                          <div key={c.id} className="rounded-md border p-2 text-sm space-y-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="font-medium leading-tight">{c.description || `Պայմանագիր #${c.id}`}</p>
+                              {c.status && (
+                                <span className="text-[10px] uppercase tracking-wide rounded bg-muted px-1.5 py-0.5 text-muted-foreground shrink-0">
+                                  {c.status}
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                              {c.price != null && (
+                                <div>
+                                  <span>Գին՝ </span>
+                                  <span className="text-foreground">{c.price.toLocaleString()} ֏</span>
+                                  {c.unit && <span> / {c.unit}</span>}
+                                </div>
+                              )}
+                              {c.qty != null && (
+                                <div>
+                                  <span>Քանակ՝ </span>
+                                  <span className="text-foreground">{c.qty.toLocaleString()}</span>
+                                  {c.unit && <span> {c.unit}</span>}
+                                </div>
+                              )}
+                              {c.total != null && (
+                                <div className="col-span-2">
+                                  <span>Ընդամենը՝ </span>
+                                  <span className="text-foreground font-medium">{c.total.toLocaleString()} ֏</span>
+                                </div>
+                              )}
+                              {(c.start || c.end) && (
+                                <div className="col-span-2">
+                                  <span>Ժամկետ՝ </span>
+                                  <span className="text-foreground">
+                                    {c.start ? formatDate(c.start) : "—"} → {c.end ? formatDate(c.end) : "—"}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Transfer Information */}
             {transaction.transfer && (
