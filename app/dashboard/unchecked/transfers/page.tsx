@@ -9,6 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast"
 import { Loader2, Check } from "lucide-react"
 import { InvoiceDetailDrawer } from "@/components/invoice-detail-drawer"
+import { LabelCell } from "@/components/label-cell"
+import { LabelFilter } from "@/components/label-filter"
 
 interface Transfer {
   id: number
@@ -16,6 +18,7 @@ interface Transfer {
   from: number
   to: number
   invoice_id: string | null
+  label: number
   from_warehouse?: { name: string }
   to_warehouse?: { name: string }
   invoice?: { destination_address: string | null; issued_at: string | null; delivered_at: string | null; created_at: string | null } | null
@@ -40,6 +43,7 @@ export default function UncheckedTransfersPage() {
   const [totalTransfers, setTotalTransfers] = useState(0)
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
   const [isInvoiceDrawerOpen, setIsInvoiceDrawerOpen] = useState(false)
+  const [labelFilter, setLabelFilter] = useState<number | null>(null)
 
   const { toast } = useToast()
   const supabase = createClient()
@@ -76,7 +80,7 @@ export default function UncheckedTransfersPage() {
       const { data, error } = await supabase
         .from("transfer")
         .select(`
-          id, created_at, from, to, invoice_id,
+          id, created_at, from, to, invoice_id, label,
           from_warehouse:warehouse!transfer_from_fkey(name),
           to_warehouse:warehouse!transfer_to_fkey(name),
           invoice:invoice!transfer_invoice_id_fkey(destination_address, issued_at, delivered_at, created_at),
@@ -127,6 +131,19 @@ export default function UncheckedTransfersPage() {
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("hy-AM", { year: "numeric", month: "short", day: "numeric" })
   const totalPages = Math.ceil(totalTransfers / TRANSFERS_PER_PAGE)
 
+  const handleSetLabel = async (transferId: number, label: number) => {
+    // Optimistic update
+    setTransfers((prev) => prev.map((t) => (t.id === transferId ? { ...t, label } : t)))
+    const { error } = await supabase.from("transfer").update({ label }).eq("id", transferId)
+    if (error) {
+      toast({ title: "Սխալ", description: error.message, variant: "destructive" })
+      // Re-fetch on failure to roll back
+      fetchTransfers()
+    }
+  }
+
+  const visibleTransfers = labelFilter == null ? transfers : transfers.filter((t) => (t.label ?? 0) === labelFilter)
+
   return (
     <div className="space-y-4">
       <div>
@@ -135,8 +152,9 @@ export default function UncheckedTransfersPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
           <CardTitle className="text-lg">Ընդամենը {totalTransfers}</CardTitle>
+          <LabelFilter value={labelFilter} onChange={setLabelFilter} />
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -148,6 +166,7 @@ export default function UncheckedTransfersPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="text-xs">
+                    <TableHead className="w-[40px] py-2"></TableHead>
                     <TableHead className="w-[12%] py-2">Թողարկման ամսաթիվ</TableHead>
                     <TableHead className="w-[20%] py-2">Որտեղից</TableHead>
                     <TableHead className="w-[22%] py-2">Հասցե</TableHead>
@@ -157,11 +176,14 @@ export default function UncheckedTransfersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transfers.map((transfer) => {
+                  {visibleTransfers.map((transfer) => {
                     const isProcessing = processingTransfers.has(transfer.id)
                     const total = (transfer.transfer_item || []).reduce((s, ti) => s + (ti.qty || 0) * ((ti.unit_price || 0) + (ti.unit_vat || 0)), 0)
                     return (
                       <TableRow key={transfer.id} className="text-xs">
+                        <TableCell className="py-2">
+                          <LabelCell value={transfer.label} onChange={(next) => handleSetLabel(transfer.id, next)} />
+                        </TableCell>
                         <TableCell className="py-2">{formatDate(transfer.invoice?.issued_at || transfer.invoice?.delivered_at || transfer.invoice?.created_at || transfer.created_at)}</TableCell>
                         <TableCell className="py-2">{transfer.from_warehouse?.name || `ID: ${transfer.from}`}</TableCell>
                         <TableCell
@@ -198,8 +220,8 @@ export default function UncheckedTransfersPage() {
                   })}
                 </TableBody>
               </Table>
-              {transfers.length > 0 && (() => {
-                const sumTotal = transfers.reduce((s, t) => s + (t.transfer_item || []).reduce((ss, ti) => ss + (ti.qty || 0) * ((ti.unit_price || 0) + (ti.unit_vat || 0)), 0), 0)
+              {visibleTransfers.length > 0 && (() => {
+                const sumTotal = visibleTransfers.reduce((s, t) => s + (t.transfer_item || []).reduce((ss, ti) => ss + (ti.qty || 0) * ((ti.unit_price || 0) + (ti.unit_vat || 0)), 0), 0)
                 return (
                   <div className="flex items-center justify-end gap-3 pt-3 mt-2 border-t text-sm">
                     <span className="text-muted-foreground">Ընդամենը այս էջում՝</span>

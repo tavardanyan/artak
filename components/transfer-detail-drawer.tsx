@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Loader2, Package, FileText, Calendar, Scissors } from "lucide-react"
 import { SplitTransferModal } from "@/components/split-transfer-modal"
+import { LabelCell } from "@/components/label-cell"
 
 interface TransferItem {
   id: number
@@ -42,6 +43,7 @@ interface Transfer {
   delivered_at: string | null
   rejected_at: string | null
   invoice_id: string | null
+  label: number
   from_warehouse?: { name: string; address: string }
   to_warehouse?: { name: string; address: string }
   invoice?: {
@@ -165,7 +167,20 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-[50vw] overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>Տեղափոխման մանրամասներ #{transferId}</SheetTitle>
+          <SheetTitle className="flex items-center gap-2">
+            {transfer && (
+              <LabelCell
+                value={transfer.label}
+                size="md"
+                onChange={async (next) => {
+                  setTransfer({ ...transfer, label: next })
+                  const { error } = await supabase.from("transfer").update({ label: next }).eq("id", transfer.id)
+                  if (error) toast({ title: "Սխալ", description: error.message, variant: "destructive" })
+                }}
+              />
+            )}
+            <span>Տեղափոխման մանրամասներ #{transferId}</span>
+          </SheetTitle>
           <SheetDescription>
             {transfer?.from_warehouse?.name || `#${transfer?.from}`} → {transfer?.to_warehouse?.name || `#${transfer?.to}`}
           </SheetDescription>

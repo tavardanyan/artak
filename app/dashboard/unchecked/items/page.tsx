@@ -9,6 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast"
 import { Loader2, Check } from "lucide-react"
 import { stringSimilarity } from "@/lib/levenshtein"
+import { LabelCell } from "@/components/label-cell"
+import { LabelFilter } from "@/components/label-filter"
 
 interface Item {
   id: number
@@ -17,6 +19,7 @@ interface Item {
   created_at: string
   parent: number | null
   seen: boolean | null
+  label: number
 }
 
 interface ParentSuggestion {
@@ -36,6 +39,7 @@ export default function UncheckedItemsPage() {
   const [matchLimit, setMatchLimit] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
+  const [labelFilter, setLabelFilter] = useState<number | null>(null)
 
   const { toast } = useToast()
   const supabase = createClient()
@@ -61,7 +65,7 @@ export default function UncheckedItemsPage() {
   const fetchAllParentItems = async () => {
     const { data } = await supabase
       .from("item")
-      .select("id, name, unit, created_at, parent, seen")
+      .select("id, name, unit, created_at, parent, seen, label")
       .is("parent", null)
     setAllParentItems(data || [])
   }
@@ -79,7 +83,7 @@ export default function UncheckedItemsPage() {
 
       const { data, error } = await supabase
         .from("item")
-        .select("id, name, unit, created_at, parent, seen")
+        .select("id, name, unit, created_at, parent, seen, label")
         .is("parent", null)
         .or("seen.is.null,seen.eq.false")
         .order("created_at", { ascending: false })
@@ -131,6 +135,17 @@ export default function UncheckedItemsPage() {
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("hy-AM", { year: "numeric", month: "short", day: "numeric" })
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE)
 
+  const handleSetLabel = async (itemId: number, label: number) => {
+    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, label } : i)))
+    const { error } = await supabase.from("item").update({ label }).eq("id", itemId)
+    if (error) {
+      toast({ title: "Սխալ", description: error.message, variant: "destructive" })
+      fetchItems()
+    }
+  }
+
+  const visibleItems = labelFilter == null ? items : items.filter((i) => (i.label ?? 0) === labelFilter)
+
   return (
     <div className="space-y-4">
       <div>
@@ -139,8 +154,9 @@ export default function UncheckedItemsPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
           <CardTitle className="text-lg">Ընդամենը {totalItems}</CardTitle>
+          <LabelFilter value={labelFilter} onChange={setLabelFilter} />
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -152,7 +168,8 @@ export default function UncheckedItemsPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="text-xs">
-                    <TableHead className="w-[35%] py-2">Անուն</TableHead>
+                    <TableHead className="w-[40px] py-2"></TableHead>
+                    <TableHead className="w-[33%] py-2">Անուն</TableHead>
                     <TableHead className="w-[10%] py-2">Միավոր</TableHead>
                     <TableHead className="w-[15%] py-2">Ստեղծման ա/թ</TableHead>
                     <TableHead className="w-[30%] py-2">Ծնող ապրանք</TableHead>
@@ -160,11 +177,14 @@ export default function UncheckedItemsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((item) => {
+                  {visibleItems.map((item) => {
                     const suggestions = getParentSuggestions(item.name, item.id)
                     const isProcessing = processingItems.has(item.id)
                     return (
                       <TableRow key={item.id} className="text-xs">
+                        <TableCell className="py-2">
+                          <LabelCell value={item.label} onChange={(next) => handleSetLabel(item.id, next)} disabled={isProcessing} />
+                        </TableCell>
                         <TableCell className="font-medium py-2">{item.name}</TableCell>
                         <TableCell className="py-2">{item.unit || "-"}</TableCell>
                         <TableCell className="py-2">{formatDate(item.created_at)}</TableCell>

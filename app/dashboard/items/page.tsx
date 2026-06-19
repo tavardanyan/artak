@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Loader2, Plus, Search, Package, X } from "lucide-react"
 import { invoiceDisplayDate } from "@/lib/utils/invoice-date"
+import { LabelCell } from "@/components/label-cell"
+import { LabelFilter } from "@/components/label-filter"
 import {
   Table,
   TableBody,
@@ -59,6 +61,7 @@ interface Item {
   unit: string | null
   seen: boolean | null
   parent: number | null
+  label: number
   parent_item?: {
     name: string
   } | null
@@ -81,6 +84,7 @@ export default function ItemsPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [updatingItemId, setUpdatingItemId] = useState<number | null>(null)
   const [parentSearchQuery, setParentSearchQuery] = useState("")
+  const [labelFilter, setLabelFilter] = useState<number | null>(null)
 
   // Item detail drawer state
   const [selectedItemName, setSelectedItemName] = useState<string | null>(null)
@@ -123,7 +127,7 @@ export default function ItemsPage() {
   useEffect(() => {
     fetchItems()
     fetchParentItems()
-  }, [currentPage, debouncedSearchQuery])
+  }, [currentPage, debouncedSearchQuery, labelFilter])
 
   const fetchItems = async () => {
     try {
@@ -137,6 +141,9 @@ export default function ItemsPage() {
       // Apply search filter
       if (debouncedSearchQuery) {
         query = query.or(`name.ilike.%${debouncedSearchQuery}%,atg.ilike.%${debouncedSearchQuery}%,code.ilike.%${debouncedSearchQuery}%`)
+      }
+      if (labelFilter != null) {
+        query = query.eq("label", labelFilter)
       }
 
       // Apply pagination
@@ -208,6 +215,15 @@ export default function ItemsPage() {
       setParentItems(data || [])
     } catch (error) {
       console.error("Error fetching parent items:", error)
+    }
+  }
+
+  const handleSetLabel = async (itemId: number, label: number) => {
+    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, label } : i)))
+    const { error } = await supabase.from("item").update({ label }).eq("id", itemId)
+    if (error) {
+      toast({ title: "Սխալ", description: error.message, variant: "destructive" })
+      fetchItems()
     }
   }
 
@@ -387,6 +403,10 @@ export default function ItemsPage() {
             </div>
           </div>
 
+          <div className="mb-3">
+            <LabelFilter value={labelFilter} onChange={(v) => { setLabelFilter(v); setCurrentPage(1) }} />
+          </div>
+
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -404,6 +424,7 @@ export default function ItemsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[40px]"></TableHead>
                       <TableHead>ID</TableHead>
                       <TableHead>Անվանում</TableHead>
                       <TableHead>ԱՏԳ Կոդ</TableHead>
@@ -417,6 +438,9 @@ export default function ItemsPage() {
                   <TableBody>
                     {items.map((item) => (
                       <TableRow key={item.id}>
+                        <TableCell>
+                          <LabelCell value={item.label} onChange={(next) => handleSetLabel(item.id, next)} />
+                        </TableCell>
                         <TableCell className="font-mono text-xs">
                           {item.id}
                         </TableCell>
