@@ -16,13 +16,15 @@ import { Bell, RefreshCw } from "lucide-react"
 import { TodayTasksHeader } from "@/components/today-tasks-header"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { TaxSyncProvider } from "@/providers/tax-sync-provider"
 import { useTaxSync } from "@/hooks/use-tax-sync"
 import { useRouter } from "next/navigation"
 
 function DashboardHeader() {
   const router = useRouter()
-  const { unseenCount, timeAgo, syncSettings, syncing } = useTaxSync()
+  const { unseenCount, timeAgo, syncSettings, syncing, autoSyncEnabled, setAutoSyncEnabled } = useTaxSync()
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
@@ -39,6 +41,20 @@ function DashboardHeader() {
       </Breadcrumb>
       <div className="ml-auto flex items-center gap-2">
         <TodayTasksHeader />
+        {/* Per-device auto-sync toggle */}
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-2 px-2">
+                <span className="text-xs text-muted-foreground hidden sm:inline">Ավտո սինք</span>
+                <Switch checked={autoSyncEnabled} onCheckedChange={setAutoSyncEnabled} aria-label="Ավտոմատ սինք" />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              Ավտոմատ սինք այս սարքից (30 րոպեն մեկ). պահվում է cookie-ում
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {/* Tax Sync Status */}
         {syncSettings?.lastSyncDate && (
           <Button

@@ -87,7 +87,7 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
           *,
           from_warehouse:warehouse!transfer_from_fkey(name, address),
           to_warehouse:warehouse!transfer_to_fkey(name, address),
-          invoice!transfer_invoice_id_fkey(serial_no, supplier_tin, total, created_at, partner!invoice_supplier_tin_fkey(name))
+          invoice!transfer_invoice_id_fkey(serial_no, supplier_tin, total, created_at, issued_at, delivered_at, partner!invoice_supplier_tin_fkey(name))
         `)
         .eq("id", transferId)
         .single()
@@ -253,7 +253,7 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
                   )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Ամսաթիվ</span>
-                    <span className="font-medium">{formatDate((transfer.invoice as any).created_at)}</span>
+                    <span className="font-medium">{formatDate((transfer.invoice as any).delivered_at || (transfer.invoice as any).issued_at || (transfer.invoice as any).created_at)}</span>
                   </div>
                 </CardContent>
               </Card>

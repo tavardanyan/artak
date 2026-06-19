@@ -59,6 +59,8 @@ interface Transfer {
     supplier_tin: string
     total: number
     created_at: string
+    issued_at: string | null
+    delivered_at: string | null
     destination_address: string | null
     partner?: {
       name: string
@@ -191,6 +193,8 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
             supplier_tin,
             total,
             created_at,
+            issued_at,
+            delivered_at,
             destination_address,
             partner:partner!invoice_supplier_tin_fkey(name, tin, address)
           )
@@ -1164,7 +1168,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     )}
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Ամսաթիվ</span>
-                      <span className="font-medium">{formatDate(selectedTransfer.invoice.created_at)}</span>
+                      <span className="font-medium">{formatDate(selectedTransfer.invoice.delivered_at || selectedTransfer.invoice.issued_at || selectedTransfer.invoice.created_at)}</span>
                     </div>
                     <div className="flex justify-between text-sm pt-2 border-t">
                       <span className="text-muted-foreground">Ընդամենը</span>

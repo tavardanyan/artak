@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Loader2, Plus, Search, Package, X } from "lucide-react"
+import { invoiceDisplayDate } from "@/lib/utils/invoice-date"
 import {
   Table,
   TableBody,
@@ -267,6 +268,7 @@ export default function ItemsPage() {
             serial_no,
             created_at,
             issued_at,
+            delivered_at,
             total,
             supplier_tin,
             destination_address,
@@ -587,7 +589,7 @@ export default function ItemsPage() {
                             Ապրանքագիր #{invoice.serial_no}
                           </CardTitle>
                           <CardDescription className="text-xs mt-1">
-                            {new Date(invoice.issued_at || invoice.created_at).toLocaleDateString('hy-AM', {
+                            {new Date(invoiceDisplayDate(invoice) || invoice.created_at).toLocaleDateString('hy-AM', {
                               year: 'numeric',
                               month: 'long',
                               day: 'numeric'

@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast"
 import { Loader2, Eye } from "lucide-react"
 import { InvoiceDetailDrawer } from "@/components/invoice-detail-drawer"
+import { invoiceDisplayDate } from "@/lib/utils/invoice-date"
 
 interface Invoice {
   id: string
@@ -19,6 +20,7 @@ interface Invoice {
   total_vat_amount: number | null
   serial_no: string | null
   issued_at: string | null
+  delivered_at: string | null
   type: string | null
   supplier?: { name: string; tin: string }
 }
@@ -53,11 +55,11 @@ export default function UncheckedInvoicesPage() {
       const { data, error } = await supabase
         .from("invoice")
         .select(`
-          id, created_at, seen, supplier_tin, total, total_value, total_vat_amount, serial_no, issued_at, type,
+          id, created_at, seen, supplier_tin, total, total_value, total_vat_amount, serial_no, issued_at, delivered_at, type,
           supplier:partner!invoice_supplier_tin_fkey(name, tin)
         `)
         .eq("seen", false)
-        .order("created_at", { ascending: false })
+        .order("delivered_at", { ascending: false, nullsFirst: false })
         .range((currentPage - 1) * INVOICES_PER_PAGE, currentPage * INVOICES_PER_PAGE - 1)
 
       if (error) throw error
@@ -133,7 +135,7 @@ export default function UncheckedInvoicesPage() {
                     return (
                       <TableRow key={invoice.id} className="text-xs cursor-pointer hover:bg-accent" onClick={() => handleInvoiceClick(invoice)}>
                         <TableCell className="font-medium py-2">{invoice.serial_no || invoice.id.substring(0, 8)}</TableCell>
-                        <TableCell className="py-2">{formatDate(invoice.issued_at || invoice.created_at)}</TableCell>
+                        <TableCell className="py-2">{formatDate(invoiceDisplayDate(invoice) || invoice.created_at)}</TableCell>
                         <TableCell className="py-2">{invoice.supplier?.name || invoice.supplier_tin || "-"}</TableCell>
                         <TableCell className="py-2 text-right">
                           {invoice.total_value != null ? `${invoice.total_value.toLocaleString()} ֏` : "-"}

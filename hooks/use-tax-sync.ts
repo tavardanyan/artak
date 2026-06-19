@@ -3,7 +3,7 @@
 import { useTaxSyncContext } from "@/providers/tax-sync-provider"
 
 export function useTaxSync() {
-  const { credentials, syncSettings, unseenCount, syncing, loading, triggerSync, refresh } = useTaxSyncContext()
+  const { credentials, syncSettings, unseenCount, syncing, loading, triggerSync, refresh, autoSyncEnabled, setAutoSyncEnabled } = useTaxSyncContext()
 
   const getTimeAgo = (dateStr: string | null) => {
     if (!dateStr) return null
@@ -32,5 +32,7 @@ export function useTaxSync() {
     timeAgo: getTimeAgo(syncSettings?.lastSyncDate || null),
     triggerSync,
     refresh,
+    autoSyncEnabled,
+    setAutoSyncEnabled,
   }
 }

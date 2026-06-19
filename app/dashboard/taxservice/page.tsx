@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { invoiceDisplayDate } from "@/lib/utils/invoice-date"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,6 +35,8 @@ interface Invoice {
   type: string | null
   status: string | null
   created_at: string | null
+  issued_at: string | null
+  delivered_at: string | null
   supplier_tin: string | null
   buyer_tin: string | null
   total: number | null
@@ -197,7 +200,7 @@ export default function TaxServicePage() {
       // Build query based on type
       let query = supabase
         .from("invoice")
-        .select("id, serial_no, type, status, created_at, supplier_tin, buyer_tin, total, total_vat_amount")
+        .select("id, serial_no, type, status, created_at, issued_at, delivered_at, supplier_tin, buyer_tin, total, total_vat_amount")
 
       if (type === "incoming") {
         // Incoming: buyer_tin = our tin
@@ -923,7 +926,7 @@ export default function TaxServicePage() {
                             <TableCell className="text-right">
                               {invoice.total_vat_amount != null ? `${invoice.total_vat_amount.toLocaleString()} ֏` : "-"}
                             </TableCell>
-                            <TableCell>{formatDate(invoice.created_at)}</TableCell>
+                            <TableCell>{formatDate(invoiceDisplayDate(invoice) || invoice.created_at)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -976,7 +979,7 @@ export default function TaxServicePage() {
                             <TableCell className="text-right">
                               {invoice.total_vat_amount != null ? `${invoice.total_vat_amount.toLocaleString()} ֏` : "-"}
                             </TableCell>
-                            <TableCell>{formatDate(invoice.created_at)}</TableCell>
+                            <TableCell>{formatDate(invoiceDisplayDate(invoice) || invoice.created_at)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
