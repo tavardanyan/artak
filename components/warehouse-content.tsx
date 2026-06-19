@@ -35,6 +35,8 @@ import {
 } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { LabelCell } from "@/components/label-cell"
+import { LabelFilter } from "@/components/label-filter"
 import { useToast } from "@/hooks/use-toast"
 import { ArrowRight, ArrowLeft, Package, TruckIcon, Plus, Trash2, Search, ChevronsUpDown, Check, Scissors } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -51,6 +53,7 @@ interface Transfer {
   rejected_at: string | null
   ximichit?: boolean
   invoice_id: string | null
+  label: number
   from_warehouse?: { name: string }
   to_warehouse?: { name: string }
   invoice?: {
@@ -87,7 +90,7 @@ interface WarehouseItem {
   warehouse_id: number
   item_id: number
   stock_qty: number
-  item?: { name: string; code: string; unit: string }
+  item?: { name: string; code: string; unit: string; label: number }
   last_price?: number
   avg_price?: number
 }
@@ -160,6 +163,8 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [toWhTab, setToWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
   const [destWhTab, setDestWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
   const [loading, setLoading] = useState(true)
+  const [transferLabelFilter, setTransferLabelFilter] = useState<number | null>(null)
+  const [itemLabelFilter, setItemLabelFilter] = useState<number | null>(null)
 
   // Create transfer state
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
@@ -250,7 +255,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       // Fetch item details
       const { data: itemsData, error: itemsError } = await supabase
         .from("item")
-        .select("id, name, code, unit")
+        .select("id, name, code, unit, label")
         .in("id", itemIds)
 
       if (itemsError) {
@@ -305,6 +310,37 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       console.error("Error:", error)
     }
   }
+
+  const setTransferLabel = async (transferId: number, label: number) => {
+    setTransfers((prev) => prev.map((t) => (t.id === transferId ? { ...t, label } : t)))
+    if (selectedTransfer?.id === transferId) setSelectedTransfer({ ...selectedTransfer, label })
+    const { error } = await supabase.from("transfer").update({ label }).eq("id", transferId)
+    if (error) {
+      toast({ title: "Սխալ", description: error.message, variant: "destructive" })
+      fetchTransfers()
+    }
+  }
+
+  const setItemLabel = async (itemId: number, label: number) => {
+    setWarehouseItems((prev) => prev.map((wi) =>
+      wi.item_id === itemId && wi.item ? { ...wi, item: { ...wi.item, label } } : wi
+    ))
+    if (selectedItem?.item_id === itemId && selectedItem.item) {
+      setSelectedItem({ ...selectedItem, item: { ...selectedItem.item, label } })
+    }
+    const { error } = await supabase.from("item").update({ label }).eq("id", itemId)
+    if (error) {
+      toast({ title: "Սխալ", description: error.message, variant: "destructive" })
+      fetchWarehouseItems()
+    }
+  }
+
+  const visibleTransfers = transferLabelFilter == null
+    ? transfers
+    : transfers.filter((t) => (t.label ?? 0) === transferLabelFilter)
+  const visibleWarehouseItems = itemLabelFilter == null
+    ? warehouseItems
+    : warehouseItems.filter((wi) => (wi.item?.label ?? 0) === itemLabelFilter)
 
   // Fetch transfer items when a transfer is selected
   const fetchTransferItems = async (transferId: number) => {
@@ -846,17 +882,22 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
         <TabsContent value="transfers" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Տեղափոխումներ</CardTitle>
-              <CardDescription>
-                Բոլոր տեղափոխումները այս պահեստից և դեպի այս պահեստ
-              </CardDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Տեղափոխումներ</CardTitle>
+                  <CardDescription>
+                    Բոլոր տեղափոխումները այս պահեստից և դեպի այս պահեստ
+                  </CardDescription>
+                </div>
+                <LabelFilter value={transferLabelFilter} onChange={setTransferLabelFilter} />
+              </div>
             </CardHeader>
             <CardContent>
               {loading ? (
                 <div className="flex justify-center py-8">
                   <p className="text-muted-foreground">Բեռնում...</p>
                 </div>
-              ) : transfers.length === 0 ? (
+              ) : visibleTransfers.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <TruckIcon className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
                   <p className="text-muted-foreground">Տեղափոխումներ չկան</p>
@@ -865,39 +906,50 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[40px]"></TableHead>
                       <TableHead>ID</TableHead>
-                      <TableHead>Պահեստ</TableHead>
+                      <TableHead className="w-[28%]">Պահեստ</TableHead>
+                      <TableHead className="w-[28%]">Հասցե</TableHead>
                       <TableHead>Ստեղծվել է</TableHead>
                       <TableHead>Վիճակ</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {transfers.map((transfer) => (
+                    {visibleTransfers.map((transfer) => {
+                      const counterpartyName = transfer.from === warehouseId
+                        ? (transfer.to_warehouse?.name || `#${transfer.to}`)
+                        : (transfer.from_warehouse?.name || `#${transfer.from}`)
+                      const destinationAddress = transfer.invoice?.destination_address || ""
+                      return (
                       <TableRow
                         key={transfer.id}
                         className="cursor-pointer hover:bg-accent"
                         onClick={() => handleTransferClick(transfer)}
                       >
-                        <TableCell className={cn("font-medium", transfer.ximichit && "text-red-600")}>#{transfer.id}</TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
+                          <LabelCell value={transfer.label} onChange={(next) => setTransferLabel(transfer.id, next)} />
+                        </TableCell>
+                        <TableCell className={cn("font-medium", transfer.ximichit && "text-red-600")}>#{transfer.id}</TableCell>
+                        <TableCell className="max-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
                             {transfer.from === warehouseId ? (
-                              <>
-                                <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                                <span>{transfer.to_warehouse?.name || `#${transfer.to}`}</span>
-                              </>
+                              <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
                             ) : (
-                              <>
-                                <ArrowLeft className="h-4 w-4 text-muted-foreground" />
-                                <span>{transfer.from_warehouse?.name || `#${transfer.from}`}</span>
-                              </>
+                              <ArrowLeft className="h-4 w-4 text-muted-foreground shrink-0" />
                             )}
+                            <span className="truncate" title={counterpartyName}>{counterpartyName}</span>
                           </div>
+                        </TableCell>
+                        <TableCell className="max-w-0">
+                          <span className="block truncate text-muted-foreground" title={destinationAddress || undefined}>
+                            {destinationAddress || "—"}
+                          </span>
                         </TableCell>
                         <TableCell>{formatDate(transfer.created_at)}</TableCell>
                         <TableCell>{getTransferStatus(transfer)}</TableCell>
                       </TableRow>
-                    ))}
+                      )
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -916,6 +968,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     Հասանելի ապրանքներ այս պահեստում
                   </CardDescription>
                 </div>
+                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mr-3" />
                 {selectedItemIds.size > 0 && (
                   <Button
                     onClick={() => {
@@ -942,7 +995,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
               </div>
             </CardHeader>
             <CardContent>
-              {warehouseItems.length === 0 ? (
+              {visibleWarehouseItems.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Package className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
                   <p className="text-muted-foreground">Ապրանքներ չկան</p>
@@ -951,14 +1004,15 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[40px]"></TableHead>
                       <TableHead className="w-[40px]">
                         <input
                           type="checkbox"
                           className="h-4 w-4 cursor-pointer"
-                          checked={warehouseItems.length > 0 && selectedItemIds.size === warehouseItems.length}
+                          checked={visibleWarehouseItems.length > 0 && selectedItemIds.size === visibleWarehouseItems.length}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedItemIds(new Set(warehouseItems.map(i => i.item_id)))
+                              setSelectedItemIds(new Set(visibleWarehouseItems.map(i => i.item_id)))
                             } else {
                               setSelectedItemIds(new Set())
                             }
@@ -974,7 +1028,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {warehouseItems.map((item) => {
+                    {visibleWarehouseItems.map((item) => {
                       const totalValue = item.avg_price != null ? item.avg_price * item.stock_qty : null
                       const isSelected = selectedItemIds.has(item.item_id)
                       return (
@@ -983,6 +1037,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                           className="cursor-pointer hover:bg-accent"
                           onClick={() => handleItemClick(item)}
                         >
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <LabelCell value={item.item?.label} onChange={(next) => setItemLabel(item.item_id, next)} />
+                          </TableCell>
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
