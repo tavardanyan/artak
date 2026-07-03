@@ -159,6 +159,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
   const [availablePositions, setAvailablePositions] = useState<string[]>([])
   const [partnerId, setPartnerId] = useState(person.partner_id?.toString() || "")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const [contracts, setContracts] = useState<Contract[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -359,6 +360,44 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
     return types[type || "other"] || type || "Այլ"
   }
 
+  // Deletable only when nothing references the person: no linked account
+  // (transactions go through it), no contracts, no documents
+  const hasRelations = !!person.account_id || contracts.length > 0 || documents.length > 0
+  const relationsLoading = loadingRelated || loadingDocs
+
+  const handleDelete = async () => {
+    if (hasRelations) return
+
+    const confirmed = window.confirm(
+      person.type === "staff"
+        ? "Վստա՞հ եք, որ ցանկանում եք ջնջել այս աշխատակցին։ Գործողությունը հետադարձելի չէ։"
+        : "Վստա՞հ եք, որ ցանկանում եք ջնջել այս կոնտակտը։ Գործողությունը հետադարձելի չէ։"
+    )
+    if (!confirmed) return
+
+    try {
+      setIsDeleting(true)
+      const { error } = await supabase.from("person").delete().eq("id", person.id)
+      if (error) throw error
+
+      toast({
+        title: "Հաջողություն",
+        description: person.type === "staff" ? "Աշխատակիցը ջնջվեց" : "Կոնտակտը ջնջվեց",
+      })
+      onOpenChange(false)
+      if (onSuccess) onSuccess()
+    } catch (error) {
+      console.error("Error deleting person:", error)
+      toast({
+        title: "Սխալ",
+        description: "Չհաջողվեց ջնջել․ հնարավոր է՝ կան կապված տվյալներ",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const handleSubmit = async () => {
     if (!firstName) {
       toast({
@@ -431,13 +470,30 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Button
+                variant="destructive"
+                size="icon"
+                onClick={handleDelete}
+                disabled={isSubmitting || isDeleting || relationsLoading || hasRelations}
+                title={
+                  hasRelations
+                    ? "Հնարավոր չէ ջնջել․ կան կապված տվյալներ (հաշիվ, պայմանագիր կամ փաստաթուղթ)"
+                    : "Ջնջել"
+                }
+              >
+                {isDeleting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </Button>
+              <Button
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                disabled={isSubmitting}
+                disabled={isSubmitting || isDeleting}
               >
                 Չեղարկել
               </Button>
-              <Button onClick={handleSubmit} disabled={isSubmitting}>
+              <Button onClick={handleSubmit} disabled={isSubmitting || isDeleting}>
                 {isSubmitting ? "Պահպանում..." : "Պահպանել"}
               </Button>
             </div>
