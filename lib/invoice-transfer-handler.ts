@@ -23,6 +23,21 @@ interface Item {
 
 // const SIMILARITY_THRESHOLD = 70 // 70% similarity - for future Levenshtein use
 
+// Items are identified by name + unit: the same name in different units
+// (e.g. "Ամրան" in կգ vs հատ) must stay separate items
+const DEFAULT_UNIT = "հատ"
+
+function normalizeUnit(unit?: string | null): string {
+  return (unit || "").toLowerCase().trim() || DEFAULT_UNIT.toLowerCase()
+}
+
+function isSameItem(name1: string, unit1: string | null | undefined, name2: string, unit2: string | null | undefined): boolean {
+  return (
+    name1.toLowerCase().trim() === name2.toLowerCase().trim() &&
+    normalizeUnit(unit1) === normalizeUnit(unit2)
+  )
+}
+
 /**
  * Get the default transfer warehouse ID from settings
  */
@@ -126,20 +141,20 @@ export async function matchAndLinkInvoiceItems(
           continue
         }
 
-        // Try to find an exact match by name
+        // Try to find an exact match by name AND unit
         const exactMatch = items.find(
-          (item) => item.name.toLowerCase().trim() === invoiceItem.name.toLowerCase().trim()
+          (item) => isSameItem(item.name, item.unit, invoiceItem.name, invoiceItem.unit)
         )
 
         if (exactMatch) {
           // Found an exact match - update invoice_item with item_id
-          console.log(`[Transfer] ✓ Exact match found for "${invoiceItem.name}" (ID: ${exactMatch.id})`)
+          console.log(`[Transfer] ✓ Exact match found for "${invoiceItem.name}" (${invoiceItem.unit || DEFAULT_UNIT}) (ID: ${exactMatch.id})`)
 
+          // Update by primary key — seq_no is NOT unique within an invoice
           const { error: updateError } = await supabase
             .from("invoice_items")
             .update({ item_id: exactMatch.id })
-            .eq("invoice_id", invoiceId)
-            .eq("seq_no", invoiceItem.seq_no)
+            .eq("id", invoiceItem.id)
 
           if (updateError) {
             console.error(`[Transfer] Error updating invoice_item:`, updateError)
@@ -149,7 +164,7 @@ export async function matchAndLinkInvoiceItems(
           }
         } else {
           // No match found - create a new item
-          console.log(`[Transfer] ✗ No match for "${invoiceItem.name}", creating new item`)
+          console.log(`[Transfer] ✗ No match for "${invoiceItem.name}" (${invoiceItem.unit || DEFAULT_UNIT}), creating new item`)
 
           const newCode = generateItemCode(invoiceItem.name, existingCodes)
           existingCodes.push(newCode) // Add to list to avoid duplicates
@@ -168,15 +183,18 @@ export async function matchAndLinkInvoiceItems(
             .single()
 
           if (createError) {
-            // Item with this name already exists (race / stale local cache / etc.) — fetch it
+            // Item already exists (race / stale local cache / etc.) — fetch it.
+            // Same name can exist with different units, so pick the one matching this unit.
             if ((createError as any).code === "23505") {
-              const { data: existing } = await supabase
+              const { data: existingList } = await supabase
                 .from("item")
                 .select("id, name, code, unit")
                 .eq("name", invoiceItem.name)
-                .maybeSingle()
+              const existing = (existingList || []).find(
+                (it) => normalizeUnit(it.unit) === normalizeUnit(invoiceItem.unit)
+              )
               if (existing) {
-                console.log(`[Transfer] Item already exists, reusing: ${invoiceItem.name} (ID: ${existing.id})`)
+                console.log(`[Transfer] Item already exists, reusing: ${invoiceItem.name} (${existing.unit || DEFAULT_UNIT}) (ID: ${existing.id})`)
                 resolvedItemId = existing.id
                 resolvedCode = existing.code
                 items.push(existing)
@@ -196,11 +214,11 @@ export async function matchAndLinkInvoiceItems(
           }
 
           if (resolvedItemId != null) {
+            // Update by primary key — seq_no is NOT unique within an invoice
             const { error: updateError } = await supabase
               .from("invoice_items")
               .update({ item_id: resolvedItemId })
-              .eq("invoice_id", invoiceId)
-              .eq("seq_no", invoiceItem.seq_no)
+              .eq("id", invoiceItem.id)
 
             if (updateError) {
               console.error(`[Transfer] Error updating invoice_item with new item_id:`, updateError)

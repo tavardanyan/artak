@@ -517,20 +517,40 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   }
 
   // Update item row
+  // The same item name can exist with different units (e.g. "Ամրան" in կգ and հատ) —
+  // those are distinct items, so resolution considers both name and unit
   const updateItemRow = (index: number, field: keyof NewTransferItem, value: any) => {
     const updated = [...newTransferItems]
     updated[index] = { ...updated[index], [field]: value }
 
-    // If item name is entered, try to find matching item
-    if (field === "itemName") {
-      const matchingItem = items.find(item =>
-        item.name.toLowerCase().includes(value.toLowerCase())
-      )
-      if (matchingItem) {
-        updated[index].itemId = matchingItem.id
-        updated[index].unit = matchingItem.unit || ""
+    if (field === "itemName" || field === "unit") {
+      const row = updated[index]
+      const nameLower = row.itemName.toLowerCase().trim()
+      const unitLower = row.unit.toLowerCase().trim()
+
+      if (!nameLower) {
+        row.itemId = null
       } else {
-        updated[index].itemId = null
+        const exactByName = items.filter(i => i.name.toLowerCase().trim() === nameLower)
+        const candidates = exactByName.length > 0
+          ? exactByName
+          : items.filter(i => i.name.toLowerCase().includes(nameLower))
+        const unitMatch = candidates.find(i => (i.unit || "").toLowerCase().trim() === unitLower)
+
+        if (field === "itemName") {
+          // Prefer the variant matching the row's unit, otherwise fall back to the first one
+          const match = unitMatch || candidates[0]
+          if (match) {
+            row.itemId = match.id
+            row.unit = match.unit || ""
+          } else {
+            row.itemId = null
+          }
+        } else {
+          // Unit edited: link only the variant with this exact unit;
+          // no such variant means a new item will be created on save
+          row.itemId = unitMatch ? unitMatch.id : null
+        }
       }
     }
 
@@ -1618,7 +1638,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                               .filter(i => i.name.toLowerCase().includes(item.itemName.toLowerCase()))
                               .slice(0, 10)
                               .map(i => (
-                                <option key={i.id} value={i.name} />
+                                <option key={i.id} value={i.name} label={`${i.name} (${i.unit || "հատ"})`} />
                               ))}
                           </datalist>
                         </TableCell>

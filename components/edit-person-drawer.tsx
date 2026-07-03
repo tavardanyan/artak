@@ -660,18 +660,18 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
           </div>
 
           {/* Third Column - Transactions */}
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4 min-h-0">
             <h3 className="font-semibold">Գործարքներ</h3>
 
             {person.account_id ? (
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2 flex-1 min-h-0">
                 <Label>Գործարքներ ({transactions.length})</Label>
                 {loadingRelated ? (
                   <p className="text-sm text-muted-foreground">Բեռնում...</p>
                 ) : transactions.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Գործարքներ չկան</p>
                 ) : (
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                  <div className="space-y-2 flex-1 min-h-[24rem] overflow-y-auto">
                     {transactions.map((transaction) => {
                       const isOutgoing = transaction.from === person.account_id
                       return (
