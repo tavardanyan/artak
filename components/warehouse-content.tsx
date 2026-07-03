@@ -91,7 +91,7 @@ interface WarehouseItem {
   warehouse_id: number
   item_id: number
   stock_qty: number
-  item?: { name: string; code: string; unit: string; label: number }
+  item?: { name: string; code: string; unit: string; label: number; is_service?: boolean }
   last_price?: number
   avg_price?: number
   fifo_value?: number
@@ -133,6 +133,8 @@ interface NewTransferItem {
   qty: string
   unitPrice: string
   unitVat: string
+  // For newly created items: mark as a service rather than a physical good
+  isService: boolean
 }
 
 interface WarehouseContentProps {
@@ -178,7 +180,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [fromWarehouse, setFromWarehouse] = useState<number>(warehouseId)
   const [toWarehouse, setToWarehouse] = useState<number | null>(null)
   const [newTransferItems, setNewTransferItems] = useState<NewTransferItem[]>([
-    { itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "" }
+    { itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "", isService: false }
   ])
   const [createTransaction, setCreateTransaction] = useState(false)
   const [fromAccount, setFromAccount] = useState<number | null>(null)
@@ -260,7 +262,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       // Fetch item details
       const { data: itemsData, error: itemsError } = await supabase
         .from("item")
-        .select("id, name, code, unit, label")
+        .select("id, name, code, unit, label, is_service")
         .in("id", itemIds)
 
       if (itemsError) {
@@ -343,6 +345,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const visibleWarehouseItems = itemLabelFilter == null
     ? warehouseItems
     : warehouseItems.filter((wi) => (wi.item?.label ?? 0) === itemLabelFilter)
+  // Services are shown in their own tab, goods in the items tab
+  const visibleGoodsItems = visibleWarehouseItems.filter((wi) => !wi.item?.is_service)
+  const visibleServiceItems = visibleWarehouseItems.filter((wi) => wi.item?.is_service)
 
   // Fetch transfer items when a transfer is selected
   const fetchTransferItems = async (transferId: number) => {
@@ -506,7 +511,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const addItemRow = () => {
     setNewTransferItems([
       ...newTransferItems,
-      { itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "" }
+      { itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "", isService: false }
     ])
   }
 
@@ -605,7 +610,8 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
             .insert({
               name: transferItem.itemName,
               code: `ITM${Date.now()}${Math.random().toString(36).substr(2, 5)}`.toUpperCase(),
-              unit: transferItem.unit || "հատ"
+              unit: transferItem.unit || "հատ",
+              is_service: transferItem.isService,
             })
             .select()
             .single()
@@ -684,7 +690,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       // Reset form
       setFromWarehouse(warehouseId)
       setToWarehouse(null)
-      setNewTransferItems([{ itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "" }])
+      setNewTransferItems([{ itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "", isService: false }])
       setCreateTransaction(false)
       setFromAccount(null)
       setToAccount(null)
@@ -895,9 +901,10 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       </div>
 
       <Tabs defaultValue="transfers" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="transfers">Տեղափոխումներ</TabsTrigger>
           <TabsTrigger value="items">Ապրանքներ</TabsTrigger>
+          <TabsTrigger value="services">Ծառայություններ</TabsTrigger>
         </TabsList>
 
         {/* Transfers Tab */}
@@ -1003,6 +1010,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                           qty: handleNumberInput(String(wi.stock_qty)),
                           unitPrice: wi.last_price != null ? handleNumberInput(String(wi.last_price)) : "",
                           unitVat: "",
+                          isService: false,
                         }))
                       if (selectedItems.length > 0) {
                         setNewTransferItems(selectedItems)
@@ -1017,7 +1025,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
               </div>
             </CardHeader>
             <CardContent>
-              {visibleWarehouseItems.length === 0 ? (
+              {visibleGoodsItems.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Package className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
                   <p className="text-muted-foreground">Ապրանքներ չկան</p>
@@ -1031,10 +1039,10 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                         <input
                           type="checkbox"
                           className="h-4 w-4 cursor-pointer"
-                          checked={visibleWarehouseItems.length > 0 && selectedItemIds.size === visibleWarehouseItems.length}
+                          checked={visibleGoodsItems.length > 0 && selectedItemIds.size === visibleGoodsItems.length}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedItemIds(new Set(visibleWarehouseItems.map(i => i.item_id)))
+                              setSelectedItemIds(new Set(visibleGoodsItems.map(i => i.item_id)))
                             } else {
                               setSelectedItemIds(new Set())
                             }
@@ -1050,7 +1058,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visibleWarehouseItems.map((item) => {
+                    {visibleGoodsItems.map((item) => {
                       const totalValue = item.fifo_value ?? null
                       const isSelected = selectedItemIds.has(item.item_id)
                       return (
@@ -1100,11 +1108,91 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   </TableBody>
                 </Table>
               )}
-              {warehouseItems.length > 0 && (
+              {visibleGoodsItems.length > 0 && (
                 <div className="flex justify-between items-center pt-4 mt-4 border-t">
-                  <span className="font-medium">Ընդամենը ({warehouseItems.length} ապրանք)</span>
+                  <span className="font-medium">Ընդամենը ({visibleGoodsItems.length} ապրանք)</span>
                   <span className="text-lg font-bold">
-                    {warehouseItems
+                    {visibleGoodsItems
+                      .reduce((sum, item) => sum + (item.fifo_value ?? 0), 0)
+                      .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏
+                  </span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="services" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Ծառայություններ</CardTitle>
+                  <CardDescription>
+                    Ծառայության տեսակի ապրանքներ այս պահեստում
+                  </CardDescription>
+                </div>
+                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mr-3" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              {visibleServiceItems.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Package className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
+                  <p className="text-muted-foreground">Ծառայություններ չկան</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[40px]"></TableHead>
+                      <TableHead>Անվանում</TableHead>
+                      <TableHead>Միավոր</TableHead>
+                      <TableHead className="text-right">Քանակ</TableHead>
+                      <TableHead className="text-right">Վերջին գին</TableHead>
+                      <TableHead className="text-right">Միջին գին</TableHead>
+                      <TableHead className="text-right">Ընդհանուր արժեք</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {visibleServiceItems.map((item) => {
+                      const totalValue = item.fifo_value ?? null
+                      return (
+                        <TableRow
+                          key={item.item_id}
+                          className="cursor-pointer hover:bg-accent"
+                          onClick={() => handleItemClick(item)}
+                        >
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <LabelCell value={item.item?.label} onChange={(next) => setItemLabel(item.item_id, next)} />
+                          </TableCell>
+                          <TableCell className="font-medium">{item.item?.name || "Անհայտ"}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {item.item?.unit || "-"}
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {item.stock_qty}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {item.last_price != null ? `${item.last_price.toLocaleString()} ֏` : "-"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {item.avg_price != null ? `${item.avg_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {totalValue != null ? `${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+              {visibleServiceItems.length > 0 && (
+                <div className="flex justify-between items-center pt-4 mt-4 border-t">
+                  <span className="font-medium">Ընդամենը ({visibleServiceItems.length} ծառայություն)</span>
+                  <span className="text-lg font-bold">
+                    {visibleServiceItems
                       .reduce((sum, item) => sum + (item.fifo_value ?? 0), 0)
                       .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏
                   </span>
@@ -1670,9 +1758,23 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                             </div>
                           )}
                           {item.itemName && !item.itemId && (
-                            <Badge variant="secondary" className="text-xs">
-                              Նոր
-                            </Badge>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant="secondary" className="text-xs">
+                                Նոր
+                              </Badge>
+                              <label
+                                className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer whitespace-nowrap"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="h-3.5 w-3.5 cursor-pointer"
+                                  checked={item.isService}
+                                  onChange={(e) => updateItemRow(index, "isService", e.target.checked)}
+                                />
+                                Ծառայ.
+                              </label>
+                            </div>
                           )}
                         </TableCell>
                         <TableCell>

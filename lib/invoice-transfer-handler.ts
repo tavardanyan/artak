@@ -98,6 +98,14 @@ export async function matchAndLinkInvoiceItems(
   try {
     console.log(`[Transfer] Matching items for invoice ${invoiceId}`)
 
+    // Items coming from service invoices are marked as services
+    const { data: invoiceRow } = await supabase
+      .from("invoice")
+      .select("type")
+      .eq("id", invoiceId)
+      .single()
+    const isServiceInvoice = invoiceRow?.type === "SERVICES" || invoiceRow?.type === "ACC_DOC_SERVICES"
+
     // Fetch all invoice items for this invoice
     const { data: invoiceItems, error: fetchError } = await supabase
       .from("invoice_items")
@@ -178,6 +186,7 @@ export async function matchAndLinkInvoiceItems(
               name: invoiceItem.name,
               code: newCode,
               unit: invoiceItem.unit || "հատ",
+              is_service: isServiceInvoice,
             })
             .select("id")
             .single()

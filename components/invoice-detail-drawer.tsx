@@ -214,20 +214,69 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
       // Find the supplier partner's warehouse to use as the transfer source
       const { data: partner } = await supabase
         .from("partner")
-        .select("warehouse_id")
+        .select("id, name, address, warehouse_id, account_id")
         .eq("tin", invoice.supplier_tin)
         .single()
 
-      if (!partner?.warehouse_id) {
+      if (!partner) {
         toast({
           title: "Սխալ",
-          description: "Մատակարար գործընկերը չունի կապված պահեստ",
+          description: "Մատակարար գործընկերը չի գտնվել",
           variant: "destructive",
         })
         return
       }
 
-      const result = await createTransferFromInvoice(supabase, invoice.id, partner.warehouse_id)
+      let warehouseId = partner.warehouse_id
+      if (!warehouseId) {
+        // Service-type suppliers are created without a warehouse — create one now
+        const { data: warehouse, error: warehouseError } = await supabase
+          .from("warehouse")
+          .insert({
+            name: partner.name,
+            address: partner.address || "-",
+            type: "supplier",
+          })
+          .select("id")
+          .single()
+
+        if (warehouseError || !warehouse) {
+          toast({
+            title: "Սխալ",
+            description: "Չհաջողվեց ստեղծել պահեստ մատակարարի համար",
+            variant: "destructive",
+          })
+          return
+        }
+        warehouseId = warehouse.id
+
+        // Also give the partner an account if they have none (needed for the order flow)
+        let accountId = partner.account_id
+        if (!accountId) {
+          const { data: account } = await supabase
+            .from("account")
+            .insert({
+              name: partner.name,
+              type: "bank",
+              currency: "amd",
+              internal: false,
+            })
+            .select("id")
+            .single()
+          accountId = account?.id ?? null
+        }
+
+        const { error: partnerUpdateError } = await supabase
+          .from("partner")
+          .update({ warehouse_id: warehouseId, account_id: accountId })
+          .eq("id", partner.id)
+
+        if (partnerUpdateError) {
+          console.error("Error linking warehouse to partner:", partnerUpdateError)
+        }
+      }
+
+      const result = await createTransferFromInvoice(supabase, invoice.id, warehouseId)
 
       if (result.transferId) {
         toast({
