@@ -42,6 +42,7 @@ import { ArrowRight, ArrowLeft, Package, TruckIcon, Plus, Trash2, Search, Chevro
 import { cn } from "@/lib/utils"
 import { SplitTransferModal } from "@/components/split-transfer-modal"
 import { XimichitModal } from "@/components/ximichit-modal"
+import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
 
 interface Transfer {
   id: number
@@ -83,7 +84,7 @@ interface TransferItem {
   total_price: number
   total_vat: number
   total: number
-  item?: { name: string; code: string }
+  item?: { name: string; code: string; unit?: string }
 }
 
 interface WarehouseItem {
@@ -155,6 +156,8 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [itemTransfers, setItemTransfers] = useState<ItemTransfer[]>([])
   const [isTransferDrawerOpen, setIsTransferDrawerOpen] = useState(false)
   const [isItemDrawerOpen, setIsItemDrawerOpen] = useState(false)
+  const [historyTransferId, setHistoryTransferId] = useState<number | null>(null)
+  const [isHistoryTransferOpen, setIsHistoryTransferOpen] = useState(false)
   const [isCreateTransferDrawerOpen, setIsCreateTransferDrawerOpen] = useState(false)
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
   const [isXimichitModalOpen, setIsXimichitModalOpen] = useState(false)
@@ -350,7 +353,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
         .from("transfer_item")
         .select(`
           *,
-          item(name, code)
+          item(name, code, unit)
         `)
         .eq("transfer_id", transferId)
 
@@ -1323,7 +1326,10 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   {transferItems.map((item) => (
                     <TableRow key={item.item_id}>
                       <TableCell>{item.item?.name || `#${item.item_id}`}</TableCell>
-                      <TableCell className="text-right">{item.qty}</TableCell>
+                      <TableCell className="text-right">
+                        {item.qty}
+                        {item.item?.unit && <span className="text-muted-foreground text-xs ml-1">{item.item.unit}</span>}
+                      </TableCell>
                       <TableCell className="text-right">{item.unit_price.toLocaleString()} ֏</TableCell>
                       <TableCell className="text-right">{item.unit_vat.toLocaleString()} ֏</TableCell>
                       <TableCell className="text-right font-medium">{item.total.toLocaleString()} ֏</TableCell>
@@ -1361,7 +1367,12 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
             <div className="p-4 bg-accent rounded-lg">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">Ընթացիկ պաշար</span>
-                <span className="text-2xl font-bold">{selectedItem?.stock_qty}</span>
+                <span className="text-2xl font-bold">
+                  {selectedItem?.stock_qty}
+                  {selectedItem?.item?.unit && (
+                    <span className="text-base font-normal text-muted-foreground ml-1.5">{selectedItem.item.unit}</span>
+                  )}
+                </span>
               </div>
             </div>
 
@@ -1382,7 +1393,14 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   </TableHeader>
                   <TableBody>
                     {itemTransfers.map((transfer, index) => (
-                      <TableRow key={index}>
+                      <TableRow
+                        key={index}
+                        className="cursor-pointer hover:bg-accent"
+                        onClick={() => {
+                          setHistoryTransferId(transfer.id)
+                          setIsHistoryTransferOpen(true)
+                        }}
+                      >
                         <TableCell>{formatDate(transfer.created_at)}</TableCell>
                         <TableCell>{transfer.from_warehouse?.name || `#${transfer.from}`}</TableCell>
                         <TableCell>{transfer.to_warehouse?.name || `#${transfer.to}`}</TableCell>
@@ -1391,6 +1409,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                             <span className="text-red-500">-{transfer.qty}</span>
                           ) : (
                             <span className="text-green-500">+{transfer.qty}</span>
+                          )}
+                          {selectedItem?.item?.unit && (
+                            <span className="text-muted-foreground text-xs ml-1">{selectedItem.item.unit}</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">{transfer.total.toLocaleString()} ֏</TableCell>
@@ -1768,6 +1789,13 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
           }}
         />
       )}
+
+      {/* Transfer detail opened from item movement history */}
+      <TransferDetailDrawer
+        open={isHistoryTransferOpen}
+        onOpenChange={setIsHistoryTransferOpen}
+        transferId={historyTransferId}
+      />
     </>
   )
 }

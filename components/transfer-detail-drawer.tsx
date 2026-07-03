@@ -314,7 +314,12 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell className="text-right">{item.qty}</TableCell>
+                            <TableCell className="text-right">
+                              {item.qty}
+                              {(item.item as any)?.unit && (
+                                <span className="text-muted-foreground text-xs ml-1">{(item.item as any).unit}</span>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right">{formatCurrency(item.unit_price)}</TableCell>
                             <TableCell className="text-right">{formatCurrency(item.unit_vat)}</TableCell>
                             <TableCell className="text-right font-medium">
@@ -355,7 +360,7 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
             total_price: i.unit_price * i.qty,
             total_vat: i.unit_vat * i.qty,
             total: (i.unit_price + i.unit_vat) * i.qty,
-            item: i.item ? { name: i.item.name, code: "" } : undefined,
+            item: i.item ? { name: i.item.name, code: "", unit: i.item.unit } : undefined,
           }))}
           currentFrom={transfer.from}
           currentTo={transfer.to}

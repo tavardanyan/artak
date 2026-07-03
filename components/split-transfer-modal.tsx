@@ -45,7 +45,7 @@ interface TransferItem {
   total_price: number
   total_vat: number
   total: number
-  item?: { name: string; code: string }
+  item?: { name: string; code: string; unit?: string }
 }
 
 interface Warehouse {
@@ -57,6 +57,7 @@ interface Warehouse {
 interface SplitItem {
   item_id: number
   name: string
+  unit: string
   originalQty: number
   leftQty: number
   rightQty: number
@@ -104,6 +105,7 @@ export function SplitTransferModal({
         transferItems.map((item) => ({
           item_id: item.item_id,
           name: item.item?.name || `#${item.item_id}`,
+          unit: item.item?.unit || "",
           originalQty: item.qty,
           leftQty: item.qty,
           rightQty: 0,
@@ -371,7 +373,10 @@ export function SplitTransferModal({
                 {splitItems.map((item, index) => (
                   <TableRow key={item.item_id} className={cn("h-[49px]", item.leftQty === 0 && "opacity-40")}>
                     <TableCell className="text-sm">{item.name}</TableCell>
-                    <TableCell className="text-right text-sm font-medium">{item.leftQty}</TableCell>
+                    <TableCell className="text-right text-sm font-medium">
+                      {item.leftQty}
+                      {item.unit && <span className="text-muted-foreground text-xs ml-1">{item.unit}</span>}
+                    </TableCell>
                     <TableCell className="text-right text-sm">
                       {((item.unit_price + item.unit_vat) * item.leftQty).toLocaleString()} ֏
                     </TableCell>
@@ -479,6 +484,8 @@ export function SplitTransferModal({
                   <TableRow key={item.item_id} className={cn("h-[49px]", item.rightQty === 0 && "opacity-40")}>
                     <TableCell className="text-sm">{item.name}</TableCell>
                     <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                      {item.unit && <span className="text-muted-foreground text-xs">{item.unit}</span>}
                       <Input
                         type="number"
                         className="w-[70px] h-7 text-sm text-right ml-auto"
@@ -488,6 +495,7 @@ export function SplitTransferModal({
                         onChange={(e) => updateRightQty(index, Number(e.target.value))}
                         disabled={item.rightQty === 0}
                       />
+                      </div>
                     </TableCell>
                     <TableCell className="text-right text-sm">
                       {((item.unit_price + item.unit_vat) * item.rightQty).toLocaleString()} ֏
