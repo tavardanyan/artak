@@ -41,8 +41,10 @@ export default function ConfigsPage() {
   const [savingWarehouse, setSavingWarehouse] = useState(false)
   const [savingLimit, setSavingLimit] = useState(false)
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([])
-  const [positions, setPositions] = useState<string[]>([])
-  const [newPosition, setNewPosition] = useState("")
+  const [staffPositions, setStaffPositions] = useState<string[]>([])
+  const [contactPositions, setContactPositions] = useState<string[]>([])
+  const [newStaffPosition, setNewStaffPosition] = useState("")
+  const [newContactPosition, setNewContactPosition] = useState("")
   const [savingPositions, setSavingPositions] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
@@ -77,10 +79,11 @@ export default function ConfigsPage() {
 
   const fetchSettings = async () => {
     try {
-      const [warehouseData, limitData, positionsData] = await Promise.all([
+      const [warehouseData, limitData, staffPositionsData, contactPositionsData] = await Promise.all([
         supabase.from("settings").select("value").eq("key", "default_transfer_warehouse").single(),
         supabase.from("settings").select("value").eq("key", "item_matching_limit").single(),
         supabase.from("settings").select("value").eq("key", "staff_positions").single(),
+        supabase.from("settings").select("value").eq("key", "contact_positions").single(),
       ])
 
       if (warehouseData.data?.value) {
@@ -89,22 +92,26 @@ export default function ConfigsPage() {
       if (limitData.data?.value) {
         setMatchLimit(limitData.data.value)
       }
-      if (Array.isArray(positionsData.data?.value)) {
-        setPositions(positionsData.data.value as string[])
+      if (Array.isArray(staffPositionsData.data?.value)) {
+        setStaffPositions(staffPositionsData.data.value as string[])
+      }
+      if (Array.isArray(contactPositionsData.data?.value)) {
+        setContactPositions(contactPositionsData.data.value as string[])
       }
     } catch (error) {
       console.error("Error fetching settings:", error)
     }
   }
 
-  const savePositions = async (next: string[]) => {
+  const savePositions = async (type: "staff" | "contact", next: string[]) => {
     setSavingPositions(true)
     try {
       const { error } = await supabase
         .from("settings")
-        .upsert({ key: "staff_positions", value: next })
+        .upsert({ key: type === "staff" ? "staff_positions" : "contact_positions", value: next })
       if (error) throw error
-      setPositions(next)
+      if (type === "staff") setStaffPositions(next)
+      else setContactPositions(next)
       toast({ title: "Հաջողություն", description: "Պաշտոնների ցանկը թարմացվեց" })
     } catch (error: any) {
       toast({ title: "Սխալ", description: error?.message || "Չհաջողվեց պահպանել", variant: "destructive" })
@@ -113,19 +120,22 @@ export default function ConfigsPage() {
     }
   }
 
-  const handleAddPosition = () => {
-    const v = newPosition.trim()
+  const handleAddPosition = (type: "staff" | "contact") => {
+    const list = type === "staff" ? staffPositions : contactPositions
+    const v = (type === "staff" ? newStaffPosition : newContactPosition).trim()
     if (!v) return
-    if (positions.includes(v)) {
+    if (list.includes(v)) {
       toast({ title: "Սխալ", description: "Այս պաշտոնն արդեն կա", variant: "destructive" })
       return
     }
-    savePositions([...positions, v])
-    setNewPosition("")
+    savePositions(type, [...list, v])
+    if (type === "staff") setNewStaffPosition("")
+    else setNewContactPosition("")
   }
 
-  const handleRemovePosition = (p: string) => {
-    savePositions(positions.filter((x) => x !== p))
+  const handleRemovePosition = (type: "staff" | "contact", p: string) => {
+    const list = type === "staff" ? staffPositions : contactPositions
+    savePositions(type, list.filter((x) => x !== p))
   }
 
   const fetchWarehouses = async () => {
@@ -358,17 +368,17 @@ export default function ConfigsPage() {
             <CardContent>
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2 min-h-[40px]">
-                  {positions.length === 0 ? (
+                  {staffPositions.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Դեռ պաշտոններ չկան</p>
                   ) : (
-                    positions.map((p) => (
+                    staffPositions.map((p) => (
                       <div
                         key={p}
                         className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 text-sm"
                       >
                         <span>{p}</span>
                         <button
-                          onClick={() => handleRemovePosition(p)}
+                          onClick={() => handleRemovePosition("staff", p)}
                           disabled={savingPositions}
                           className="text-muted-foreground hover:text-destructive"
                           aria-label={`Հեռացնել ${p}`}
@@ -383,12 +393,65 @@ export default function ConfigsPage() {
                 <div className="flex gap-2">
                   <Input
                     placeholder="Նոր պաշտոնի անվանումը"
-                    value={newPosition}
-                    onChange={(e) => setNewPosition(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddPosition() } }}
+                    value={newStaffPosition}
+                    onChange={(e) => setNewStaffPosition(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddPosition("staff") } }}
                     disabled={savingPositions}
                   />
-                  <Button onClick={handleAddPosition} disabled={savingPositions || !newPosition.trim()}>
+                  <Button onClick={() => handleAddPosition("staff")} disabled={savingPositions || !newStaffPosition.trim()}>
+                    {savingPositions ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    <span className="ml-2">Ավելացնել</span>
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Contact Positions */}
+          <Card className="hover:bg-accent/50 transition-colors md:col-span-2 lg:col-span-3">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-primary" />
+                <CardTitle>Կոնտակտների պաշտոններ</CardTitle>
+              </div>
+              <CardDescription>
+                Ավելացրեք կամ հեռացրեք պաշտոնները՝ որոնք օգտագործվում են կոնտակտների գրանցման համար
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2 min-h-[40px]">
+                  {contactPositions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Դեռ պաշտոններ չկան</p>
+                  ) : (
+                    contactPositions.map((p) => (
+                      <div
+                        key={p}
+                        className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 text-sm"
+                      >
+                        <span>{p}</span>
+                        <button
+                          onClick={() => handleRemovePosition("contact", p)}
+                          disabled={savingPositions}
+                          className="text-muted-foreground hover:text-destructive"
+                          aria-label={`Հեռացնել ${p}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Նոր պաշտոնի անվանումը"
+                    value={newContactPosition}
+                    onChange={(e) => setNewContactPosition(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddPosition("contact") } }}
+                    disabled={savingPositions}
+                  />
+                  <Button onClick={() => handleAddPosition("contact")} disabled={savingPositions || !newContactPosition.trim()}>
                     {savingPositions ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                     <span className="ml-2">Ավելացնել</span>
                   </Button>

@@ -26,7 +26,7 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
-import { fetchStaffPositions } from "@/lib/utils/positions"
+import { fetchPersonPositions } from "@/lib/utils/positions"
 
 interface Partner {
   id: number
@@ -74,7 +74,7 @@ export function CreatePersonDrawer({ open, onOpenChange, type, onSuccess }: Crea
       fetchPartners()
     }
     if (open) {
-      fetchStaffPositions(supabase).then(setAvailablePositions)
+      fetchPersonPositions(supabase, type).then(setAvailablePositions)
     }
   }, [open, type])
 

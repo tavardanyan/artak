@@ -34,7 +34,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { cn } from "@/lib/utils"
-import { fetchStaffPositions } from "@/lib/utils/positions"
+import { fetchPersonPositions } from "@/lib/utils/positions"
 import { uuidv4 } from "@/lib/utils/uuid"
 
 interface Partner {
@@ -195,7 +195,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
       fetchPartners()
     }
     if (open) {
-      fetchStaffPositions(supabase).then(setAvailablePositions)
+      fetchPersonPositions(supabase, person.type === "staff" ? "staff" : "contact").then(setAvailablePositions)
     }
   }, [open, person.type])
 
