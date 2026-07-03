@@ -536,6 +536,20 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
     if (field === "itemName" || field === "unit") {
       const row = updated[index]
+
+      // Direct pick from the autocomplete list: "Name (unit)" resolves to that
+      // exact unit variant and the input is rewritten back to the plain name
+      if (field === "itemName") {
+        const directPick = items.find(i => `${i.name} (${i.unit || "հատ"})` === value)
+        if (directPick) {
+          row.itemName = directPick.name
+          row.unit = directPick.unit || ""
+          row.itemId = directPick.id
+          setNewTransferItems(updated)
+          return
+        }
+      }
+
       const nameLower = row.itemName.toLowerCase().trim()
       const unitLower = row.unit.toLowerCase().trim()
 
@@ -1744,13 +1758,14 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[30%]">Անվանում</TableHead>
+                      <TableHead className="w-[26%]">Անվանում</TableHead>
                       <TableHead className="w-[60px]"></TableHead>
-                      <TableHead className="w-[12%]">Միավոր</TableHead>
-                      <TableHead className="w-[10%]">Քնկ.</TableHead>
-                      <TableHead className="w-[15%]">Գին</TableHead>
-                      <TableHead className="w-[15%]">ԱԱՀ</TableHead>
-                      <TableHead className="w-[10%]"></TableHead>
+                      <TableHead className="w-[10%]">Միավոր</TableHead>
+                      <TableHead className="w-[9%]">Քնկ.</TableHead>
+                      <TableHead className="w-[13%]">Գին</TableHead>
+                      <TableHead className="w-[13%]">ԱԱՀ</TableHead>
+                      <TableHead className="w-[13%] text-right">Ընդամենը</TableHead>
+                      <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1768,7 +1783,10 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                               .filter(i => i.name.toLowerCase().includes(item.itemName.toLowerCase()))
                               .slice(0, 10)
                               .map(i => (
-                                <option key={i.id} value={i.name} label={`${i.name} (${i.unit || "հատ"})`} />
+                                // Value includes the unit so same-name items with different
+                                // units appear as separate selectable lines (identical values
+                                // would be collapsed by the browser)
+                                <option key={i.id} value={`${i.name} (${i.unit || "հատ"})`} />
                               ))}
                           </datalist>
                         </TableCell>
@@ -1830,6 +1848,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                             value={item.unitVat}
                             onChange={(e) => updateItemRow(index, "unitVat", handleNumberInput(e.target.value))}
                           />
+                        </TableCell>
+                        <TableCell className="text-right font-medium whitespace-nowrap">
+                          {((parseFormattedNumber(item.unitPrice) + parseFormattedNumber(item.unitVat)) * parseFormattedNumber(item.qty)).toLocaleString()} ֏
                         </TableCell>
                         <TableCell>
                           <Button

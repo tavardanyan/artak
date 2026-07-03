@@ -915,9 +915,9 @@ export default function ProjectPageClient({
             const renderValue = (own: number, total: number, label: string, colorClass?: string) => (
               <div>
                 <p className="text-sm text-muted-foreground mb-1">{label}</p>
-                <p className={`text-2xl font-bold ${colorClass || ""}`}>{formatCurrency(total)}</p>
+                <p className={`text-2xl font-bold ${colorClass || ""}`}>{formatCurrency(own)}</p>
                 {subProjectAggregates && total !== own && (
-                  <p className="text-xs text-muted-foreground mt-1">սեփական՝ {formatCurrency(own)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">ընդհանուր՝ {formatCurrency(total)}</p>
                 )}
               </div>
             )
@@ -929,11 +929,11 @@ export default function ProjectPageClient({
                     <div>
                       <p className="text-sm text-muted-foreground mb-1">Պայմանագրային արժեք</p>
                       <p className="text-2xl font-bold">
-                        {totalBudget ? formatCurrency(totalBudget) : "-"}
+                        {project.budget ? formatCurrency(project.budget) : "-"}
                       </p>
                       {subProjectAggregates && project.budget !== totalBudget && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          սեփական՝ {project.budget ? formatCurrency(project.budget) : "-"}
+                          ընդհանուր՝ {totalBudget ? formatCurrency(totalBudget) : "-"}
                         </p>
                       )}
                     </div>
@@ -945,12 +945,12 @@ export default function ProjectPageClient({
                     )}
                     <div>
                       <p className="text-sm text-muted-foreground mb-1">Ծախսեր</p>
-                      <p className="text-2xl font-bold text-red-600">{formatCurrency(totalExpensesReal)}</p>
+                      <p className="text-2xl font-bold text-red-600">{formatCurrency(expensesReal)}</p>
                       {expensesXimichit > 0 && (
-                        <p className="text-xs text-muted-foreground mt-1">+ խիմիչիտ՝ {formatCurrency(totalExpensesXimichit)}</p>
+                        <p className="text-xs text-muted-foreground mt-1">+ խիմիչիտ՝ {formatCurrency(expensesXimichit)}</p>
                       )}
                       {subProjectAggregates && totalExpensesReal !== expensesReal && (
-                        <p className="text-xs text-muted-foreground mt-1">սեփական՝ {formatCurrency(expensesReal)}</p>
+                        <p className="text-xs text-muted-foreground mt-1">ընդհանուր՝ {formatCurrency(totalExpensesReal)}</p>
                       )}
                     </div>
                     {renderValue(
@@ -961,7 +961,7 @@ export default function ProjectPageClient({
                   </div>
                   {subProjectAggregates && (
                     <p className="text-xs text-muted-foreground mt-4">
-                      * Արժեքները ներառում են այս նախագծի և բոլոր ենթանախագծերի տվյալները
+                      * «Ընդհանուր» արժեքները ներառում են այս նախագծի և բոլոր ենթանախագծերի տվյալները
                     </p>
                   )}
                 </CardContent>
