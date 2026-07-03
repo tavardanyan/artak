@@ -10,8 +10,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, TruckIcon, ExternalLink } from "lucide-react"
+import { Loader2, TruckIcon, ExternalLink, Plus } from "lucide-react"
 import Link from "next/link"
+import { createTransferFromInvoice } from "@/lib/invoice-transfer-handler"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -91,6 +92,7 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null)
   const [items, setItems] = useState<InvoiceItem[]>([])
   const [transfers, setTransfers] = useState<RelatedTransfer[]>([])
+  const [creatingTransfer, setCreatingTransfer] = useState(false)
   const [supplierName, setSupplierName] = useState<string | null>(null)
   const [buyerName, setBuyerName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -196,6 +198,63 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
     })
   }
 
+  const handleCreateTransfer = async () => {
+    if (!invoice?.supplier_tin) {
+      toast({
+        title: "Սխալ",
+        description: "Հաշիվ-ապրանքագիրը չունի մատակարարի ՀՎՀՀ",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setCreatingTransfer(true)
+
+      // Find the supplier partner's warehouse to use as the transfer source
+      const { data: partner } = await supabase
+        .from("partner")
+        .select("warehouse_id")
+        .eq("tin", invoice.supplier_tin)
+        .single()
+
+      if (!partner?.warehouse_id) {
+        toast({
+          title: "Սխալ",
+          description: "Մատակարար գործընկերը չունի կապված պահեստ",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const result = await createTransferFromInvoice(supabase, invoice.id, partner.warehouse_id)
+
+      if (result.transferId) {
+        toast({
+          title: "Հաջողություն",
+          description: `Ստեղծվեց տեղափոխում #${result.transferId}`,
+        })
+        // Reload drawer data so the new transfer appears
+        await fetchInvoiceDetail()
+      } else {
+        toast({
+          title: "Սխալ",
+          description: result.errors.length > 0 ? result.errors.join("; ") : "Չհաջողվեց ստեղծել տեղափոխումը",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error creating transfer:", error)
+      toast({
+        title: "Սխալ",
+        description: "Չհաջողվեց ստեղծել տեղափոխումը",
+        variant: "destructive",
+      })
+    } finally {
+      setCreatingTransfer(false)
+    }
+  }
+
   const getTransferStatus = (transfer: RelatedTransfer) => {
     if (transfer.rejected_at) {
       return <Badge variant="destructive">Մերժված</Badge>
@@ -278,9 +337,24 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
               </CardHeader>
               <CardContent>
                 {transfers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Կապված տեղափոխում չի գտնվել
-                  </p>
+                  <div className="flex items-center justify-between gap-4">
+                    <p className="text-sm text-muted-foreground">
+                      Կապված տեղափոխում չի գտնվել
+                    </p>
+                    <Button size="sm" onClick={handleCreateTransfer} disabled={creatingTransfer}>
+                      {creatingTransfer ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          Ստեղծվում է...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="h-4 w-4 mr-1" />
+                          Ստեղծել տեղափոխում
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 ) : (
                   <Table>
                     <TableHeader>

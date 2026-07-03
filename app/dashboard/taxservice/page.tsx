@@ -14,7 +14,9 @@ import { EInvoicingClient } from "@/lib/einvoicing-client"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { InvoiceDetailDrawer } from "@/components/invoice-detail-drawer"
+import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
 import { ensurePartnerExists } from "@/lib/invoice-partner-handler"
 import { createTransferFromInvoice } from "@/lib/invoice-transfer-handler"
 
@@ -29,6 +31,13 @@ interface SyncSettings {
   lastAnchor?: number
 }
 
+interface InvoiceTransfer {
+  id: number
+  acepted_at: string | null
+  rejected_at: string | null
+  delivered_at: string | null
+}
+
 interface Invoice {
   id: string
   serial_no: string | null
@@ -41,6 +50,7 @@ interface Invoice {
   buyer_tin: string | null
   total: number | null
   total_vat_amount: number | null
+  transfer?: InvoiceTransfer[]
 }
 
 export default function TaxServicePage() {
@@ -62,6 +72,9 @@ export default function TaxServicePage() {
   const [invoicePage, setInvoicePage] = useState(1)
   const [invoiceTotalCount, setInvoiceTotalCount] = useState(0)
   const [invoiceSearch, setInvoiceSearch] = useState("")
+  const [withoutTransferOnly, setWithoutTransferOnly] = useState(false)
+  const [selectedTransferId, setSelectedTransferId] = useState<number | null>(null)
+  const [isTransferDrawerOpen, setIsTransferDrawerOpen] = useState(false)
   const invoiceSearchInitialized = useRef(false)
   const [unseenCount, setUnseenCount] = useState(0)
   const [nextSyncIn, setNextSyncIn] = useState<number | null>(null)
@@ -200,7 +213,8 @@ export default function TaxServicePage() {
   const fetchInvoices = async (
     type: "incoming" | "outgoing" = "incoming",
     page: number = 1,
-    search: string = ""
+    search: string = "",
+    withoutTransfer: boolean = withoutTransferOnly
   ) => {
     if (!credentials) return
 
@@ -211,7 +225,7 @@ export default function TaxServicePage() {
       let query = supabase
         .from("invoice")
         .select(
-          "id, serial_no, type, status, created_at, issued_at, delivered_at, supplier_tin, buyer_tin, total, total_vat_amount",
+          "id, serial_no, type, status, created_at, issued_at, delivered_at, supplier_tin, buyer_tin, total, total_vat_amount, transfer!transfer_invoice_id_fkey(id, acepted_at, rejected_at, delivered_at)",
           { count: "exact" }
         )
 
@@ -225,6 +239,11 @@ export default function TaxServicePage() {
 
       if (search.trim()) {
         query = query.ilike("serial_no", `%${search.trim()}%`)
+      }
+
+      if (withoutTransfer) {
+        // Keep only invoices that have no related transfer rows
+        query = query.is("transfer", null)
       }
 
       const from = (page - 1) * INVOICES_PAGE_SIZE
@@ -915,14 +934,29 @@ export default function TaxServicePage() {
                   <TabsTrigger value="outgoing">Ելք</TabsTrigger>
                 </TabsList>
 
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Որոնել հաշիվ-ապրանքագրի համարով..."
-                    value={invoiceSearch}
-                    onChange={(e) => setInvoiceSearch(e.target.value)}
-                    className="pl-9"
-                  />
+                <div className="flex items-center gap-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Որոնել հաշիվ-ապրանքագրի համարով..."
+                      value={invoiceSearch}
+                      onChange={(e) => setInvoiceSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Switch
+                      id="without-transfer-filter"
+                      checked={withoutTransferOnly}
+                      onCheckedChange={(checked) => {
+                        setWithoutTransferOnly(checked)
+                        fetchInvoices(invoiceType, 1, invoiceSearch, checked)
+                      }}
+                    />
+                    <Label htmlFor="without-transfer-filter" className="text-sm cursor-pointer">
+                      Առանց տեղափոխման
+                    </Label>
+                  </div>
                 </div>
 
                 <TabsContent value="incoming" className="space-y-4">
@@ -942,6 +976,7 @@ export default function TaxServicePage() {
                           <TableHead>Տեսակ</TableHead>
                           <TableHead>Մատակարար ՀՎՀՀ</TableHead>
                           <TableHead>Ստատուս</TableHead>
+                          <TableHead>Տեղափոխում</TableHead>
                           <TableHead className="text-right">Գումար</TableHead>
                           <TableHead className="text-right">ԱԱՀ</TableHead>
                           <TableHead>Ամսաթիվ</TableHead>
@@ -963,6 +998,28 @@ export default function TaxServicePage() {
                               <Badge variant={invoice.status === "ACTIVE" ? "default" : "secondary"}>
                                 {invoice.status || "-"}
                               </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {invoice.transfer && invoice.transfer.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {invoice.transfer.map((t) => (
+                                    <Badge
+                                      key={t.id}
+                                      variant={t.rejected_at ? "destructive" : "outline"}
+                                      className="cursor-pointer hover:bg-accent"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setSelectedTransferId(t.id)
+                                        setIsTransferDrawerOpen(true)
+                                      }}
+                                    >
+                                      #{t.id}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-right font-medium">
                               {invoice.total != null ? `${invoice.total.toLocaleString()} ֏` : "-"}
@@ -995,6 +1052,7 @@ export default function TaxServicePage() {
                           <TableHead>Տեսակ</TableHead>
                           <TableHead>Ստացող ՀՎՀՀ</TableHead>
                           <TableHead>Ստատուս</TableHead>
+                          <TableHead>Տեղափոխում</TableHead>
                           <TableHead className="text-right">Գումար</TableHead>
                           <TableHead className="text-right">ԱԱՀ</TableHead>
                           <TableHead>Ամսաթիվ</TableHead>
@@ -1016,6 +1074,28 @@ export default function TaxServicePage() {
                               <Badge variant={invoice.status === "ACTIVE" ? "default" : "secondary"}>
                                 {invoice.status || "-"}
                               </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {invoice.transfer && invoice.transfer.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {invoice.transfer.map((t) => (
+                                    <Badge
+                                      key={t.id}
+                                      variant={t.rejected_at ? "destructive" : "outline"}
+                                      className="cursor-pointer hover:bg-accent"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setSelectedTransferId(t.id)
+                                        setIsTransferDrawerOpen(true)
+                                      }}
+                                    >
+                                      #{t.id}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-right font-medium">
                               {invoice.total != null ? `${invoice.total.toLocaleString()} ֏` : "-"}
@@ -1071,6 +1151,12 @@ export default function TaxServicePage() {
           invoiceId={selectedInvoice.id}
         />
       )}
+
+      <TransferDetailDrawer
+        open={isTransferDrawerOpen}
+        onOpenChange={setIsTransferDrawerOpen}
+        transferId={selectedTransferId}
+      />
     </div>
   )
 }
