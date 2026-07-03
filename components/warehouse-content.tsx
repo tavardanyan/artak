@@ -172,6 +172,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [loading, setLoading] = useState(true)
   const [transferLabelFilter, setTransferLabelFilter] = useState<number | null>(null)
   const [itemLabelFilter, setItemLabelFilter] = useState<number | null>(null)
+  const [itemSearchQuery, setItemSearchQuery] = useState("")
 
   // Create transfer state
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
@@ -342,9 +343,13 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const visibleTransfers = transferLabelFilter == null
     ? transfers
     : transfers.filter((t) => (t.label ?? 0) === transferLabelFilter)
-  const visibleWarehouseItems = itemLabelFilter == null
+  const visibleWarehouseItems = (itemLabelFilter == null
     ? warehouseItems
     : warehouseItems.filter((wi) => (wi.item?.label ?? 0) === itemLabelFilter)
+  ).filter((wi) =>
+    !itemSearchQuery.trim() ||
+    (wi.item?.name || "").toLowerCase().includes(itemSearchQuery.trim().toLowerCase())
+  )
   // Services are shown in their own tab, goods in the items tab
   const visibleGoodsItems = visibleWarehouseItems.filter((wi) => !wi.item?.is_service)
   const visibleServiceItems = visibleWarehouseItems.filter((wi) => wi.item?.is_service)
@@ -997,6 +1002,15 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     Հասանելի ապրանքներ այս պահեստում
                   </CardDescription>
                 </div>
+                <div className="relative flex-1 max-w-sm mx-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Որոնել ապրանք..."
+                    value={itemSearchQuery}
+                    onChange={(e) => setItemSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
                 <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mr-3" />
                 {selectedItemIds.size > 0 && (
                   <Button
@@ -1131,6 +1145,15 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   <CardDescription>
                     Ծառայության տեսակի ապրանքներ այս պահեստում
                   </CardDescription>
+                </div>
+                <div className="relative flex-1 max-w-sm mx-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Որոնել ծառայություն..."
+                    value={itemSearchQuery}
+                    onChange={(e) => setItemSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
                 </div>
                 <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mr-3" />
               </div>
