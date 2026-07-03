@@ -94,6 +94,7 @@ interface WarehouseItem {
   item?: { name: string; code: string; unit: string; label: number }
   last_price?: number
   avg_price?: number
+  fifo_value?: number
 }
 
 interface ItemTransfer {
@@ -267,45 +268,42 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
         return
       }
 
-      // Fetch price data for each item (last price and average price)
-      const priceDataPromises = itemIds.map(async (itemId) => {
-        // Get all accepted transfers for this item in this warehouse
-        const { data: transferItems } = await supabase
-          .from("transfer_item")
-          .select("unit_amount, transfer:transfer_id(acepted_at, to, from)")
-          .eq("item_id", itemId)
-          .not("transfer.acepted_at", "is", null)
-          .or(`to.eq.${warehouseId},from.eq.${warehouseId}`, { foreignTable: "transfer" })
-          .order("transfer(acepted_at)", { ascending: false })
+      // FIFO valuation of remaining stock (single query, computed in the DB view)
+      const { data: fifoData } = await supabase
+        .from("warehouse_item_fifo")
+        .select("item_id, fifo_value")
+        .eq("warehouse_id", warehouseId)
+      const fifoByItem = new Map<number, number>(
+        (fifoData || []).map((f: { item_id: number; fifo_value: number }) => [f.item_id, f.fifo_value])
+      )
 
-        if (!transferItems || transferItems.length === 0) {
-          return { itemId, last_price: null, avg_price: null }
+      // Last price per item: most recent accepted transfer touching this warehouse
+      const { data: recentTransferItems } = await supabase
+        .from("transfer_item")
+        .select("item_id, unit_amount, transfer:transfer_id!inner(acepted_at, to, from)")
+        .in("item_id", itemIds)
+        .not("transfer.acepted_at", "is", null)
+        .or(`to.eq.${warehouseId},from.eq.${warehouseId}`, { foreignTable: "transfer" })
+        .order("transfer(acepted_at)", { ascending: false })
+      const lastPriceByItem = new Map<number, number>()
+      for (const ti of (recentTransferItems || []) as { item_id: number; unit_amount: number | null }[]) {
+        if (!lastPriceByItem.has(ti.item_id) && ti.unit_amount != null) {
+          lastPriceByItem.set(ti.item_id, ti.unit_amount)
         }
-
-        // Last price (most recent)
-        const last_price = transferItems[0]?.unit_amount || null
-
-        // Average price
-        const prices = transferItems.map(ti => ti.unit_amount).filter(p => p != null)
-        const avg_price = prices.length > 0
-          ? prices.reduce((sum, price) => sum + price, 0) / prices.length
-          : null
-
-        return { itemId, last_price, avg_price }
-      })
-
-      const priceData = await Promise.all(priceDataPromises)
+      }
 
       // Combine stock, item, and price data
       const combined = stockData.map(stock => {
         const itemInfo = itemsData?.find(item => item.id === stock.item_id)
-        const prices = priceData.find(p => p.itemId === stock.item_id)
+        const fifoValue = fifoByItem.get(stock.item_id)
 
         return {
           ...stock,
           item: itemInfo,
-          last_price: prices?.last_price || undefined,
-          avg_price: prices?.avg_price || undefined
+          last_price: lastPriceByItem.get(stock.item_id),
+          // Unit cost of the remaining stock under FIFO
+          avg_price: fifoValue != null && stock.stock_qty > 0 ? fifoValue / stock.stock_qty : undefined,
+          fifo_value: fifoValue ?? undefined,
         }
       })
 
@@ -1053,7 +1051,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   </TableHeader>
                   <TableBody>
                     {visibleWarehouseItems.map((item) => {
-                      const totalValue = item.avg_price != null ? item.avg_price * item.stock_qty : null
+                      const totalValue = item.fifo_value ?? null
                       const isSelected = selectedItemIds.has(item.item_id)
                       return (
                         <TableRow
@@ -1107,7 +1105,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   <span className="font-medium">Ընդամենը ({warehouseItems.length} ապրանք)</span>
                   <span className="text-lg font-bold">
                     {warehouseItems
-                      .reduce((sum, item) => sum + (item.avg_price != null ? item.avg_price * item.stock_qty : 0), 0)
+                      .reduce((sum, item) => sum + (item.fifo_value ?? 0), 0)
                       .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏
                   </span>
                 </div>

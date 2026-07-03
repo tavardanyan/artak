@@ -483,23 +483,13 @@ export default function ProjectPageClient({
         }
       }
 
-      // Warehouse stock value - matches warehouse items balance total
+      // Warehouse stock value - FIFO valuation, matches warehouse items balance total
       if (sub.warehouse_id) {
-        const { data: stockData } = await supabase
-          .from("warehouse_item_stock")
-          .select("item_id, stock_qty")
+        const { data: fifoData } = await supabase
+          .from("warehouse_item_fifo")
+          .select("fifo_value")
           .eq("warehouse_id", sub.warehouse_id)
-        for (const s of stockData || []) {
-          const { data: tis } = await supabase
-            .from("transfer_item")
-            .select("unit_amount, transfer:transfer_id(acepted_at, to, from)")
-            .eq("item_id", s.item_id)
-            .not("transfer.acepted_at", "is", null)
-            .or(`to.eq.${sub.warehouse_id},from.eq.${sub.warehouse_id}`, { foreignTable: "transfer" })
-          const valid = (tis || []).map((t: any) => t.unit_amount).filter((p: any) => p != null)
-          const avg = valid.length > 0 ? valid.reduce((a: number, b: number) => a + b, 0) / valid.length : 0
-          warehouseStockValue += avg * s.stock_qty
-        }
+        warehouseStockValue += (fifoData || []).reduce((s: number, f: any) => s + (f.fifo_value || 0), 0)
       }
     }
 
@@ -512,31 +502,12 @@ export default function ProjectPageClient({
       return
     }
     const warehouseId = project.warehouse_id
-    // Match the warehouse items table total: sum of (stock_qty * avg_price) per item
-    // stock_qty comes from warehouse_item_stock view (already excludes ximichit=true)
-    // avg_price = mean unit_amount across accepted transfer_items involving this warehouse
-    const { data: stockData } = await supabase
-      .from("warehouse_item_stock")
-      .select("item_id, stock_qty")
+    // FIFO valuation from the warehouse_item_fifo view — matches the warehouse items table total
+    const { data: fifoData } = await supabase
+      .from("warehouse_item_fifo")
+      .select("fifo_value")
       .eq("warehouse_id", warehouseId)
-    if (!stockData || stockData.length === 0) {
-      setWarehouseStockValue(0)
-      return
-    }
-    const values = await Promise.all(
-      stockData.map(async (s: any) => {
-        const { data: tis } = await supabase
-          .from("transfer_item")
-          .select("unit_amount, transfer:transfer_id(acepted_at, to, from)")
-          .eq("item_id", s.item_id)
-          .not("transfer.acepted_at", "is", null)
-          .or(`to.eq.${warehouseId},from.eq.${warehouseId}`, { foreignTable: "transfer" })
-        const valid = (tis || []).map((t: any) => t.unit_amount).filter((p: any) => p != null)
-        const avg = valid.length > 0 ? valid.reduce((a: number, b: number) => a + b, 0) / valid.length : 0
-        return avg * s.stock_qty
-      })
-    )
-    setWarehouseStockValue(values.reduce((a, b) => a + b, 0))
+    setWarehouseStockValue((fifoData || []).reduce((s: number, f: any) => s + (f.fifo_value || 0), 0))
   }
 
   const fetchInternalAccounts = async () => {
