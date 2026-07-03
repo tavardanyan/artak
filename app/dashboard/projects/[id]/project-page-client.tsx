@@ -297,6 +297,12 @@ export default function ProjectPageClient({
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
+
+  // Keep the selected tab visible in the horizontally-scrollable tab bar
+  useEffect(() => {
+    const el = document.querySelector(`[data-tab-value="${activeTab}"]`) as HTMLElement | null
+    el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" })
+  }, [activeTab])
   const [isContractDrawerOpen, setIsContractDrawerOpen] = useState(false)
   const [isEditContractDrawerOpen, setIsEditContractDrawerOpen] = useState(false)
   const [isEditProjectDrawerOpen, setIsEditProjectDrawerOpen] = useState(false)
@@ -837,46 +843,50 @@ export default function ProjectPageClient({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="overview">Ընդհանուր</TabsTrigger>
-          <TabsTrigger value="contracts">
-            Աշխատանքներ
-            {contracts.length > 0 && (
-              <Badge variant="secondary" className="ml-2">
-                {contracts.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="contacts">
-            Կոնտակտներ
-            {contacts.length > 0 && (
-              <Badge variant="secondary" className="ml-2">
-                {contacts.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="warehouse">
-            Պահեստ
-          </TabsTrigger>
-          <TabsTrigger value="suppliers">
-            Մատակարարներ
-          </TabsTrigger>
-          <TabsTrigger value="transactions">
-            Գործարքներ
-            {transactions.length > 0 && (
-              <Badge variant="secondary" className="ml-2">
-                {transactions.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="documents">Փաստաթղթեր</TabsTrigger>
-          <TabsTrigger value="tasks">
-            Առաջադրանքներ
-            {tasks.length > 0 && (
-              <Badge variant="secondary" className="ml-2">{tasks.length}</Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
+        <div
+          className="-mx-4 sm:mx-0 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+        >
+          <TabsList className="w-max max-w-none mx-4 sm:mx-0">
+            <TabsTrigger value="overview" data-tab-value="overview">Ընդհանուր</TabsTrigger>
+            <TabsTrigger value="contracts" data-tab-value="contracts">
+              Աշխատանքներ
+              {contracts.length > 0 && (
+                <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px] sm:ml-2 sm:h-5 sm:px-2 sm:text-xs">
+                  {contracts.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="contacts" data-tab-value="contacts">
+              Կոնտակտներ
+              {contacts.length > 0 && (
+                <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px] sm:ml-2 sm:h-5 sm:px-2 sm:text-xs">
+                  {contacts.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="warehouse" data-tab-value="warehouse">
+              Պահեստ
+            </TabsTrigger>
+            <TabsTrigger value="suppliers" data-tab-value="suppliers">
+              Մատակարարներ
+            </TabsTrigger>
+            <TabsTrigger value="transactions" data-tab-value="transactions">
+              Գործարքներ
+              {transactions.length > 0 && (
+                <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px] sm:ml-2 sm:h-5 sm:px-2 sm:text-xs">
+                  {transactions.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="documents" data-tab-value="documents">Փաստաթղթեր</TabsTrigger>
+            <TabsTrigger value="tasks" data-tab-value="tasks">
+              Առաջադրանքներ
+              {tasks.length > 0 && (
+                <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px] sm:ml-2 sm:h-5 sm:px-2 sm:text-xs">{tasks.length}</Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">

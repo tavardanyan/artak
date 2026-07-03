@@ -10,10 +10,12 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2 } from "lucide-react"
+import { Loader2, TruckIcon, ExternalLink } from "lucide-react"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 
 interface InvoiceDetailDrawerProps {
@@ -56,6 +58,18 @@ interface InvoiceDetail {
   other_data: string | null
 }
 
+interface RelatedTransfer {
+  id: number
+  from: number
+  to: number
+  created_at: string | null
+  delivered_at: string | null
+  acepted_at: string | null
+  rejected_at: string | null
+  from_warehouse?: { name: string }
+  to_warehouse?: { name: string }
+}
+
 interface InvoiceItem {
   id: number
   seq_no: number | null
@@ -76,6 +90,7 @@ interface InvoiceItem {
 export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDetailDrawerProps) {
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null)
   const [items, setItems] = useState<InvoiceItem[]>([])
+  const [transfers, setTransfers] = useState<RelatedTransfer[]>([])
   const [supplierName, setSupplierName] = useState<string | null>(null)
   const [buyerName, setBuyerName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -131,6 +146,24 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
       if (itemsError) throw itemsError
 
       setItems(itemsData || [])
+
+      // Fetch related warehouse transfers created from this invoice
+      const { data: transfersData, error: transfersError } = await supabase
+        .from("transfer")
+        .select(`
+          id, from, to, created_at, delivered_at, acepted_at, rejected_at,
+          from_warehouse:warehouse!transfer_from_fkey(name),
+          to_warehouse:warehouse!transfer_to_fkey(name)
+        `)
+        .eq("invoice_id", invoiceId)
+        .order("created_at", { ascending: false })
+
+      if (transfersError) {
+        console.error("Error fetching related transfers:", transfersError)
+        setTransfers([])
+      } else {
+        setTransfers((transfersData || []) as unknown as RelatedTransfer[])
+      }
     } catch (error) {
       console.error("Error fetching invoice details:", error)
       toast({
@@ -161,6 +194,19 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
       hour: "2-digit",
       minute: "2-digit",
     })
+  }
+
+  const getTransferStatus = (transfer: RelatedTransfer) => {
+    if (transfer.rejected_at) {
+      return <Badge variant="destructive">Մերժված</Badge>
+    }
+    if (transfer.acepted_at) {
+      return <Badge variant="outline">Ընդունված</Badge>
+    }
+    if (transfer.delivered_at) {
+      return <Badge variant="secondary">Ընթացիկ</Badge>
+    }
+    return <Badge variant="default">Սևագիր</Badge>
   }
 
   return (
@@ -216,6 +262,58 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
                     <p className="text-base mt-1">{invoice.user_name || "-"}</p>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Related warehouse transfers */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <TruckIcon className="h-5 w-5 text-primary" />
+                  <CardTitle>Կապված տեղափոխումներ</CardTitle>
+                </div>
+                <CardDescription>
+                  Այս հաշիվ-ապրանքագրից ստեղծված պահեստի տեղափոխումներ
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {transfers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Կապված տեղափոխում չի գտնվել
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>ID</TableHead>
+                        <TableHead>Որտեղից</TableHead>
+                        <TableHead>Ուր</TableHead>
+                        <TableHead>Ստատուս</TableHead>
+                        <TableHead>Ամսաթիվ</TableHead>
+                        <TableHead className="w-[1%]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {transfers.map((transfer) => (
+                        <TableRow key={transfer.id}>
+                          <TableCell className="font-medium">#{transfer.id}</TableCell>
+                          <TableCell>{transfer.from_warehouse?.name || `#${transfer.from}`}</TableCell>
+                          <TableCell>{transfer.to_warehouse?.name || `#${transfer.to}`}</TableCell>
+                          <TableCell>{getTransferStatus(transfer)}</TableCell>
+                          <TableCell>{formatDateTime(transfer.created_at)}</TableCell>
+                          <TableCell>
+                            <Button asChild variant="outline" size="sm">
+                              <Link href={`/dashboard/warehouse?id=${transfer.to}`}>
+                                <ExternalLink className="h-4 w-4 mr-1" />
+                                Բացել պահեստը
+                              </Link>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
 

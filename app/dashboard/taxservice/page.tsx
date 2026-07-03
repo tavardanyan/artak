@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { invoiceDisplayDate } from "@/lib/utils/invoice-date"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { useTaxSync } from "@/hooks/use-tax-sync"
-import { Loader2, Download, Database, Calendar, AlertCircle, FileText, RefreshCw, Bell } from "lucide-react"
+import { Loader2, Download, Database, Calendar, AlertCircle, FileText, RefreshCw, Bell, Search, ChevronLeft, ChevronRight } from "lucide-react"
 import { EInvoicingClient } from "@/lib/einvoicing-client"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -59,6 +59,10 @@ export default function TaxServicePage() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState(false)
   const [invoiceType, setInvoiceType] = useState<"incoming" | "outgoing">("incoming")
+  const [invoicePage, setInvoicePage] = useState(1)
+  const [invoiceTotalCount, setInvoiceTotalCount] = useState(0)
+  const [invoiceSearch, setInvoiceSearch] = useState("")
+  const invoiceSearchInitialized = useRef(false)
   const [unseenCount, setUnseenCount] = useState(0)
   const [nextSyncIn, setNextSyncIn] = useState<number | null>(null)
 
@@ -191,7 +195,13 @@ export default function TaxServicePage() {
     }
   }
 
-  const fetchInvoices = async (type: "incoming" | "outgoing" = "incoming") => {
+  const INVOICES_PAGE_SIZE = 100
+
+  const fetchInvoices = async (
+    type: "incoming" | "outgoing" = "incoming",
+    page: number = 1,
+    search: string = ""
+  ) => {
     if (!credentials) return
 
     try {
@@ -200,7 +210,10 @@ export default function TaxServicePage() {
       // Build query based on type
       let query = supabase
         .from("invoice")
-        .select("id, serial_no, type, status, created_at, issued_at, delivered_at, supplier_tin, buyer_tin, total, total_vat_amount")
+        .select(
+          "id, serial_no, type, status, created_at, issued_at, delivered_at, supplier_tin, buyer_tin, total, total_vat_amount",
+          { count: "exact" }
+        )
 
       if (type === "incoming") {
         // Incoming: buyer_tin = our tin
@@ -210,12 +223,21 @@ export default function TaxServicePage() {
         query = query.eq("supplier_tin", credentials.tin)
       }
 
-      query = query.order("created_at", { ascending: false }).limit(100)
+      if (search.trim()) {
+        query = query.ilike("serial_no", `%${search.trim()}%`)
+      }
 
-      const { data, error } = await query
+      const from = (page - 1) * INVOICES_PAGE_SIZE
+      query = query
+        .order("created_at", { ascending: false })
+        .range(from, from + INVOICES_PAGE_SIZE - 1)
+
+      const { data, error, count } = await query
 
       if (error) throw error
       setInvoices(data || [])
+      setInvoiceTotalCount(count || 0)
+      setInvoicePage(page)
     } catch (error) {
       console.error("Error fetching invoices:", error)
       toast({
@@ -227,6 +249,18 @@ export default function TaxServicePage() {
       setLoadingInvoices(false)
     }
   }
+
+  // Debounced server-side search by invoice serial number
+  useEffect(() => {
+    if (!invoiceSearchInitialized.current) {
+      invoiceSearchInitialized.current = true
+      return
+    }
+    const timeoutId = setTimeout(() => {
+      fetchInvoices(invoiceType, 1, invoiceSearch)
+    }, 400)
+    return () => clearTimeout(timeoutId)
+  }, [invoiceSearch])
 
   const handleInvoiceClick = (invoice: Invoice) => {
     setSelectedInvoice(invoice)
@@ -245,7 +279,7 @@ export default function TaxServicePage() {
 
     try {
       await triggerSync()
-      await fetchInvoices(invoiceType)
+      await fetchInvoices(invoiceType, invoicePage, invoiceSearch)
       await fetchUnseenCount()
       await refreshGlobalSync()
 
@@ -548,7 +582,7 @@ export default function TaxServicePage() {
       })
 
       // Refresh invoices list
-      await fetchInvoices(invoiceType)
+      await fetchInvoices(invoiceType, invoicePage, invoiceSearch)
 
       // Update unseen count
       await fetchUnseenCount()
@@ -727,7 +761,7 @@ export default function TaxServicePage() {
       <Tabs defaultValue="main" className="space-y-6">
         <TabsList>
           <TabsTrigger value="main">Սինքրոնացում</TabsTrigger>
-          <TabsTrigger value="invoices" onClick={() => !loadingInvoices && invoices.length === 0 && fetchInvoices("incoming")}>
+          <TabsTrigger value="invoices" onClick={() => !loadingInvoices && invoices.length === 0 && fetchInvoices(invoiceType, 1, invoiceSearch)}>
             Հաշիվ-ապրանքագրեր
           </TabsTrigger>
         </TabsList>
@@ -855,7 +889,7 @@ export default function TaxServicePage() {
                   <FileText className="h-5 w-5 text-primary" />
                   <CardTitle>Հաշիվ-ապրանքագրեր</CardTitle>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => fetchInvoices(invoiceType)} disabled={loadingInvoices}>
+                <Button variant="outline" size="sm" onClick={() => fetchInvoices(invoiceType, invoicePage, invoiceSearch)} disabled={loadingInvoices}>
                   {loadingInvoices ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
@@ -864,7 +898,7 @@ export default function TaxServicePage() {
                 </Button>
               </div>
               <CardDescription>
-                Վերջին 100 սինքրոնացված հաշիվ-ապրանքագրերը
+                Բոլոր սինքրոնացված հաշիվ-ապրանքագրերը
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -872,7 +906,7 @@ export default function TaxServicePage() {
                 value={invoiceType}
                 onValueChange={(value) => {
                   setInvoiceType(value as "incoming" | "outgoing")
-                  fetchInvoices(value as "incoming" | "outgoing")
+                  fetchInvoices(value as "incoming" | "outgoing", 1, invoiceSearch)
                 }}
                 className="space-y-4"
               >
@@ -880,6 +914,16 @@ export default function TaxServicePage() {
                   <TabsTrigger value="incoming">Մուտք</TabsTrigger>
                   <TabsTrigger value="outgoing">Ելք</TabsTrigger>
                 </TabsList>
+
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Որոնել հաշիվ-ապրանքագրի համարով..."
+                    value={invoiceSearch}
+                    onChange={(e) => setInvoiceSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
 
                 <TabsContent value="incoming" className="space-y-4">
                   {loadingInvoices ? (
@@ -987,6 +1031,34 @@ export default function TaxServicePage() {
                   )}
                 </TabsContent>
               </Tabs>
+
+              {invoiceTotalCount > INVOICES_PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Ընդամենը՝ {invoiceTotalCount.toLocaleString()} • Էջ {invoicePage}/{Math.max(1, Math.ceil(invoiceTotalCount / INVOICES_PAGE_SIZE))}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={invoicePage <= 1 || loadingInvoices}
+                      onClick={() => fetchInvoices(invoiceType, invoicePage - 1, invoiceSearch)}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Նախորդ
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={invoicePage >= Math.ceil(invoiceTotalCount / INVOICES_PAGE_SIZE) || loadingInvoices}
+                      onClick={() => fetchInvoices(invoiceType, invoicePage + 1, invoiceSearch)}
+                    >
+                      Հաջորդ
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

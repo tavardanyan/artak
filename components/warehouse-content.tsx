@@ -127,9 +127,10 @@ interface NewTransferItem {
   itemName: string
   itemId: number | null
   unit: string
-  qty: number
-  unitPrice: number
-  unitVat: number
+  // Kept as strings so intermediate input like "2." isn't lost while typing
+  qty: string
+  unitPrice: string
+  unitVat: string
 }
 
 interface WarehouseContentProps {
@@ -173,7 +174,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [fromWarehouse, setFromWarehouse] = useState<number>(warehouseId)
   const [toWarehouse, setToWarehouse] = useState<number | null>(null)
   const [newTransferItems, setNewTransferItems] = useState<NewTransferItem[]>([
-    { itemName: "", itemId: null, unit: "", qty: 1, unitPrice: 0, unitVat: 0 }
+    { itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "" }
   ])
   const [createTransaction, setCreateTransaction] = useState(false)
   const [fromAccount, setFromAccount] = useState<number | null>(null)
@@ -504,7 +505,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const addItemRow = () => {
     setNewTransferItems([
       ...newTransferItems,
-      { itemName: "", itemId: null, unit: "", qty: 1, unitPrice: 0, unitVat: 0 }
+      { itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "" }
     ])
   }
 
@@ -594,15 +595,15 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
         itemsToInsert.push({
           item_id: itemId,
-          qty: transferItem.qty,
-          unit_price: transferItem.unitPrice,
-          unit_vat: transferItem.unitVat,
+          qty: parseFormattedNumber(transferItem.qty),
+          unit_price: parseFormattedNumber(transferItem.unitPrice),
+          unit_vat: parseFormattedNumber(transferItem.unitVat),
         })
       }
 
       // Calculate total amount
       const totalAmount = newTransferItems.reduce(
-        (sum, item) => sum + ((item.unitPrice + item.unitVat) * item.qty),
+        (sum, item) => sum + ((parseFormattedNumber(item.unitPrice) + parseFormattedNumber(item.unitVat)) * parseFormattedNumber(item.qty)),
         0
       )
 
@@ -662,7 +663,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       // Reset form
       setFromWarehouse(warehouseId)
       setToWarehouse(null)
-      setNewTransferItems([{ itemName: "", itemId: null, unit: "", qty: 1, unitPrice: 0, unitVat: 0 }])
+      setNewTransferItems([{ itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "" }])
       setCreateTransaction(false)
       setFromAccount(null)
       setToAccount(null)
@@ -978,9 +979,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                           itemName: wi.item?.name || "",
                           itemId: wi.item_id,
                           unit: wi.item?.unit || "",
-                          qty: wi.stock_qty,
-                          unitPrice: wi.last_price ?? 0,
-                          unitVat: 0,
+                          qty: handleNumberInput(String(wi.stock_qty)),
+                          unitPrice: wi.last_price != null ? handleNumberInput(String(wi.last_price)) : "",
+                          unitVat: "",
                         }))
                       if (selectedItems.length > 0) {
                         setNewTransferItems(selectedItems)
@@ -1571,7 +1572,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     </p>
                     <p className="text-lg font-semibold">
                       {newTransferItems
-                        .reduce((sum, item) => sum + ((item.unitPrice + item.unitVat) * item.qty), 0)
+                        .reduce((sum, item) => sum + ((parseFormattedNumber(item.unitPrice) + parseFormattedNumber(item.unitVat)) * parseFormattedNumber(item.qty)), 0)
                         .toLocaleString()} ֏
                     </p>
                   </div>
@@ -1647,23 +1648,23 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                           <Input
                             type="text"
                             value={item.qty}
-                            onChange={(e) => updateItemRow(index, "qty", parseFormattedNumber(handleNumberInput(e.target.value)))}
+                            onChange={(e) => updateItemRow(index, "qty", handleNumberInput(e.target.value))}
                           />
                         </TableCell>
                         <TableCell>
                           <Input
                             type="text"
                             placeholder="0.00"
-                            value={item.unitPrice ? handleNumberInput(item.unitPrice.toString()) : ""}
-                            onChange={(e) => updateItemRow(index, "unitPrice", parseFormattedNumber(handleNumberInput(e.target.value)))}
+                            value={item.unitPrice}
+                            onChange={(e) => updateItemRow(index, "unitPrice", handleNumberInput(e.target.value))}
                           />
                         </TableCell>
                         <TableCell>
                           <Input
                             type="text"
                             placeholder="0.00"
-                            value={item.unitVat ? handleNumberInput(item.unitVat.toString()) : ""}
-                            onChange={(e) => updateItemRow(index, "unitVat", parseFormattedNumber(handleNumberInput(e.target.value)))}
+                            value={item.unitVat}
+                            onChange={(e) => updateItemRow(index, "unitVat", handleNumberInput(e.target.value))}
                           />
                         </TableCell>
                         <TableCell>
@@ -1690,7 +1691,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     <p className="text-sm text-muted-foreground">Ընդհանուր գումար</p>
                     <p className="text-2xl font-bold">
                       {newTransferItems
-                        .reduce((sum, item) => sum + ((item.unitPrice + item.unitVat) * item.qty), 0)
+                        .reduce((sum, item) => sum + ((parseFormattedNumber(item.unitPrice) + parseFormattedNumber(item.unitVat)) * parseFormattedNumber(item.qty)), 0)
                         .toLocaleString()} ֏
                     </p>
                   </div>
