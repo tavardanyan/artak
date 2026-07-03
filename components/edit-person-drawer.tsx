@@ -11,7 +11,6 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  SheetFooter,
 } from "@/components/ui/sheet"
 import {
   Select,
@@ -421,15 +420,31 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-[90vw] overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>
-            {person.type === "staff" ? "Խմբագրել աշխատակցի տվյալները" : "Խմբագրել կոնտակտի տվյալները"}
-          </SheetTitle>
-          <SheetDescription>
-            Թարմացրեք {person.type === "staff" ? "աշխատակցի" : "կոնտակտի"} տեղեկատվությունը
-          </SheetDescription>
+          <div className="flex items-start justify-between gap-4 pr-8">
+            <div className="space-y-1.5">
+              <SheetTitle>
+                {person.type === "staff" ? "Խմբագրել աշխատակցի տվյալները" : "Խմբագրել կոնտակտի տվյալները"}
+              </SheetTitle>
+              <SheetDescription>
+                Թարմացրեք {person.type === "staff" ? "աշխատակցի" : "կոնտակտի"} տեղեկատվությունը
+              </SheetDescription>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={isSubmitting}
+              >
+                Չեղարկել
+              </Button>
+              <Button onClick={handleSubmit} disabled={isSubmitting}>
+                {isSubmitting ? "Պահպանում..." : "Պահպանել"}
+              </Button>
+            </div>
+          </div>
         </SheetHeader>
 
-        <div className="grid grid-cols-3 gap-6 py-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-6">
           {/* Left Column - Person Info */}
           <div className="space-y-4">
             <h3 className="font-semibold">Անձնական տվյալներ</h3>
@@ -642,8 +657,13 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
               )}
             </div>
 
-            {/* Transactions Section */}
-            {person.account_id && (
+          </div>
+
+          {/* Third Column - Transactions */}
+          <div className="space-y-4">
+            <h3 className="font-semibold">Գործարքներ</h3>
+
+            {person.account_id ? (
               <div className="space-y-2">
                 <Label>Գործարքներ ({transactions.length})</Label>
                 {loadingRelated ? (
@@ -693,13 +713,17 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
                   </div>
                 )}
               </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Անձը կապված հաշիվ չունի</p>
             )}
           </div>
+        </div>
 
-          {/* Third Column - Documents */}
-          <div className="space-y-4">
-            <h3 className="font-semibold">Փաստաթղթեր</h3>
-            <div className="space-y-2">
+        {/* Documents - Full width bottom section */}
+        <div className="space-y-4 border-t pt-6 pb-6">
+          <div className="flex items-center justify-between gap-4">
+            <h3 className="font-semibold">Փաստաթղթեր ({documents.length})</h3>
+            <div className="flex items-center gap-2">
               <input
                 type="file"
                 accept="image/*,.pdf"
@@ -716,7 +740,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
               />
               <select
                 id="doc-type-select"
-                className="h-9 w-full text-sm border rounded-md px-3 bg-background"
+                className="h-9 text-sm border rounded-md px-3 bg-background"
                 defaultValue="passport"
               >
                 <option value="passport">Անձնագիր</option>
@@ -725,7 +749,6 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
               </select>
               <Button
                 variant="outline"
-                className="w-full"
                 onClick={() => document.getElementById("doc-upload")?.click()}
                 disabled={uploading}
               >
@@ -737,14 +760,15 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
                 Ավելացնել
               </Button>
             </div>
+          </div>
 
-            {loadingDocs ? (
-              <p className="text-sm text-muted-foreground">Բեռնում...</p>
-            ) : documents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Փաստաթղթեր չկան</p>
-            ) : (
-              <div className="space-y-2">
-                {documents.map((doc) => {
+          {loadingDocs ? (
+            <p className="text-sm text-muted-foreground">Բեռնում...</p>
+          ) : documents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Փաստաթղթեր չկան</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+              {documents.map((doc) => {
                   const isImage = doc.mime_type?.startsWith("image/")
                   const url = getDocumentUrl(doc)
                   return (
@@ -790,20 +814,6 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
               </div>
             )}
           </div>
-        </div>
-
-        <SheetFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-          >
-            Չեղարկել
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? "Պահպանում..." : "Պահպանել"}
-          </Button>
-        </SheetFooter>
       </SheetContent>
 
       {/* Document Preview Dialog */}
