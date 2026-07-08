@@ -87,6 +87,16 @@ interface Transaction {
     name: string
     currency: string
   }
+  project?: {
+    id: number
+    name: string
+  } | null
+  contract_transaction?: Array<{
+    contract: {
+      id: number
+      description: string | null
+    } | null
+  }>
 }
 
 interface Document {
@@ -163,6 +173,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
 
   const [contracts, setContracts] = useState<Contract[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [transactionProjectFilter, setTransactionProjectFilter] = useState<string>("all")
   const [partners, setPartners] = useState<Partner[]>([])
   const [loadingRelated, setLoadingRelated] = useState(false)
   const [documents, setDocuments] = useState<Document[]>([])
@@ -223,6 +234,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
 
   const fetchRelatedData = async () => {
     setLoadingRelated(true)
+    setTransactionProjectFilter("all")
 
     // Fetch contracts
     const { data: contractsData, error: contractsError } = await supabase
@@ -256,7 +268,9 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
           from,
           to,
           from_account:from(name, currency),
-          to_account:to(name, currency)
+          to_account:to(name, currency),
+          project:project_id(id, name),
+          contract_transaction(contract:contact_id(id, description))
         `)
         .or(`from.eq.${person.account_id},to.eq.${person.account_id}`)
         .order("created_at", { ascending: false })
@@ -721,53 +735,108 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
 
             {person.account_id ? (
               <div className="flex flex-col gap-2 flex-1 min-h-0">
-                <Label>Գործարքներ ({transactions.length})</Label>
-                {loadingRelated ? (
-                  <p className="text-sm text-muted-foreground">Բեռնում...</p>
-                ) : transactions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Գործարքներ չկան</p>
-                ) : (
-                  <div className="space-y-2 flex-1 min-h-[24rem] overflow-y-auto">
-                    {transactions.map((transaction) => {
-                      const isOutgoing = transaction.from === person.account_id
-                      return (
-                        <div
-                          key={transaction.id}
-                          className="p-3 border rounded-md bg-muted/50 space-y-1"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {isOutgoing ? (
-                                <ArrowUpRight className="h-4 w-4 text-red-500" />
-                              ) : (
-                                <ArrowDownLeft className="h-4 w-4 text-green-500" />
-                              )}
-                              <span className="font-medium text-sm">
-                                {formatCurrency(
-                                  transaction.amount,
-                                  isOutgoing
-                                    ? transaction.from_account.currency
-                                    : transaction.to_account.currency
+                {(() => {
+                  const transactionProjects = Array.from(
+                    new Map(
+                      transactions
+                        .filter((t) => t.project)
+                        .map((t) => [t.project!.id, t.project!])
+                    ).values()
+                  )
+                  const visibleTransactions = transactions.filter(
+                    (t) =>
+                      transactionProjectFilter === "all" ||
+                      t.project?.id.toString() === transactionProjectFilter
+                  )
+                  return (
+                    <>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label>Գործարքներ ({visibleTransactions.length})</Label>
+                        {transactionProjects.length > 0 && (
+                          <Select value={transactionProjectFilter} onValueChange={setTransactionProjectFilter}>
+                            <SelectTrigger className="h-8 w-[180px] text-xs">
+                              <SelectValue placeholder="Բոլոր նախագծերը" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Բոլոր նախագծերը</SelectItem>
+                              {transactionProjects.map((p) => (
+                                <SelectItem key={p.id} value={p.id.toString()}>
+                                  {p.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                      {loadingRelated ? (
+                        <p className="text-sm text-muted-foreground">Բեռնում...</p>
+                      ) : visibleTransactions.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Գործարքներ չկան</p>
+                      ) : (
+                        <div className="space-y-2 flex-1 min-h-[24rem] overflow-y-auto">
+                          {visibleTransactions.map((transaction) => {
+                            const isOutgoing = transaction.from === person.account_id
+                            const linkedContract = (transaction.contract_transaction || [])
+                              .map((ct) => ct.contract)
+                              .find(Boolean)
+                            return (
+                              <div
+                                key={transaction.id}
+                                className="p-3 border rounded-md bg-muted/50 space-y-1"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    {isOutgoing ? (
+                                      <ArrowUpRight className="h-4 w-4 text-red-500" />
+                                    ) : (
+                                      <ArrowDownLeft className="h-4 w-4 text-green-500" />
+                                    )}
+                                    <span className="font-medium text-sm">
+                                      {formatCurrency(
+                                        transaction.amount,
+                                        isOutgoing
+                                          ? transaction.from_account.currency
+                                          : transaction.to_account.currency
+                                      )}
+                                    </span>
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatDate(transaction.created_at)}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {transaction.from_account.name} → {transaction.to_account.name}
+                                </p>
+                                {(transaction.project || linkedContract) && (
+                                  <div className="flex flex-wrap gap-1 pt-0.5">
+                                    {transaction.project && (
+                                      <Badge variant="outline" className="text-xs max-w-full">
+                                        <span className="truncate">{transaction.project.name}</span>
+                                      </Badge>
+                                    )}
+                                    {linkedContract && (
+                                      <Badge variant="secondary" className="text-xs max-w-full">
+                                        <span className="truncate">
+                                          Պայմ. №{linkedContract.id}
+                                          {linkedContract.description ? ` — ${linkedContract.description}` : ""}
+                                        </span>
+                                      </Badge>
+                                    )}
+                                  </div>
                                 )}
-                              </span>
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                              {formatDate(transaction.created_at)}
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {transaction.from_account.name} → {transaction.to_account.name}
-                          </p>
-                          {transaction.note && (
-                            <p className="text-xs text-muted-foreground italic">
-                              {transaction.note}
-                            </p>
-                          )}
+                                {transaction.note && (
+                                  <p className="text-xs text-muted-foreground italic">
+                                    {transaction.note}
+                                  </p>
+                                )}
+                              </div>
+                            )
+                          })}
                         </div>
-                      )
-                    })}
-                  </div>
-                )}
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Անձը կապված հաշիվ չունի</p>
