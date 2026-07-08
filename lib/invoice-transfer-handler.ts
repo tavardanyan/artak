@@ -349,7 +349,9 @@ export async function createTransferFromInvoice(
     for (const item of itemsWithParents) {
       const itemId = item.finalItemId!
       const qty = item.quantity || 0
-      const value = qty * (item.unit_price || 0)
+      // Use the invoice's declared net (total_value) — qty * unit_price can be higher
+      // (list price before discount/rounding); VAT is computed on total_value
+      const value = item.total_value ?? qty * (item.unit_price || 0)
       const vat = item.vat_amount || 0
       const existing = mergedByItem.get(itemId)
       if (existing) {
