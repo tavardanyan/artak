@@ -38,7 +38,8 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { LabelCell } from "@/components/label-cell"
 import { LabelFilter } from "@/components/label-filter"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowRight, ArrowLeft, Package, TruckIcon, Plus, Trash2, Search, ChevronsUpDown, Check, Scissors } from "lucide-react"
+import { ArrowRight, ArrowLeft, Package, TruckIcon, Plus, Trash2, Search, ChevronsUpDown, Check, Scissors, Download } from "lucide-react"
+import * as XLSX from "xlsx"
 import { cn } from "@/lib/utils"
 import { SplitTransferModal } from "@/components/split-transfer-modal"
 import { XimichitModal } from "@/components/ximichit-modal"
@@ -909,6 +910,68 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
     })
   }
 
+  // Export helpers — always export the FULL dataset, not the filtered/visible rows
+  const downloadRows = (rows: Record<string, unknown>[], fileName: string, format: "xlsx" | "csv") => {
+    const ws = XLSX.utils.json_to_sheet(rows)
+    if (format === "csv") {
+      const csv = XLSX.utils.sheet_to_csv(ws)
+      // BOM so Excel opens Armenian text correctly
+      const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${fileName}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } else {
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Data")
+      XLSX.writeFile(wb, `${fileName}.xlsx`)
+    }
+  }
+
+  const exportTransfers = (format: "xlsx" | "csv") => {
+    const rows = transfers.map((t) => ({
+      "ID": t.id,
+      "Ուղղություն": t.from === warehouseId ? "Ելք" : "Մուտք",
+      "Որտեղից": t.from_warehouse?.name || `#${t.from}`,
+      "Ուր": t.to_warehouse?.name || `#${t.to}`,
+      "Հասցե": t.invoice?.destination_address || "",
+      "Ստեղծվել է": t.created_at ? new Date(t.created_at).toLocaleDateString("hy-AM") : "",
+      "Վիճակ": t.rejected_at ? "Մերժված" : t.acepted_at ? "Ընդունված" : t.delivered_at ? "Ընթացիկ" : "Սևագիր",
+      "Խիմիչիտ": t.ximichit ? "Այո" : "",
+      "Հաշիվ-ապրանքագիր": t.invoice?.serial_no || "",
+    }))
+    downloadRows(rows, `${warehouseName}-transfers`, format)
+  }
+
+  const exportItems = (serviceOnly: boolean, format: "xlsx" | "csv") => {
+    const rows = warehouseItems
+      .filter((wi) => !!wi.item?.is_service === serviceOnly)
+      .map((wi) => ({
+        "Անվանում": wi.item?.name || "",
+        "Միավոր": wi.item?.unit || "",
+        "Քանակ": wi.stock_qty,
+        "Վերջին գին": wi.last_price ?? "",
+        "Միջին գին": wi.avg_price != null ? Math.round(wi.avg_price * 100) / 100 : "",
+        "Ընդհանուր արժեք": wi.fifo_value != null ? Math.round(wi.fifo_value * 100) / 100 : "",
+      }))
+    downloadRows(rows, `${warehouseName}-${serviceOnly ? "services" : "items"}`, format)
+  }
+
+  const ExportButtons = ({ onExport }: { onExport: (format: "xlsx" | "csv") => void }) => (
+    <div className="flex items-center gap-1.5">
+      <Button variant="outline" size="sm" onClick={() => onExport("csv")}>
+        <Download className="h-3.5 w-3.5 mr-1.5" />
+        CSV
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => onExport("xlsx")}>
+        <Download className="h-3.5 w-3.5 mr-1.5" />
+        XLSX
+      </Button>
+    </div>
+  )
+
   return (
     <>
       <div className="flex items-center justify-between mb-4">
@@ -937,7 +1000,10 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     Բոլոր տեղափոխումները այս պահեստից և դեպի այս պահեստ
                   </CardDescription>
                 </div>
-                <LabelFilter value={transferLabelFilter} onChange={setTransferLabelFilter} />
+                <div className="flex items-center gap-3">
+                  <ExportButtons onExport={exportTransfers} />
+                  <LabelFilter value={transferLabelFilter} onChange={setTransferLabelFilter} />
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -1025,7 +1091,8 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     className="pl-9"
                   />
                 </div>
-                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mr-3" />
+                <ExportButtons onExport={(f) => exportItems(false, f)} />
+                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mx-3" />
                 {selectedItemIds.size > 0 && (
                   <Button
                     onClick={() => {
@@ -1169,7 +1236,8 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     className="pl-9"
                   />
                 </div>
-                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mr-3" />
+                <ExportButtons onExport={(f) => exportItems(true, f)} />
+                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mx-3" />
               </div>
             </CardHeader>
             <CardContent>
