@@ -49,6 +49,7 @@ import {
   ArrowUpRight,
   ChevronRight,
   ChevronDown,
+  Trash2,
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
@@ -2079,6 +2080,16 @@ export default function ProjectPageClient({
   )
 }
 
+interface ContractLine {
+  description: string
+  qty: string
+  unit: string
+  price: string
+  total: string
+}
+
+const emptyContractLine = (): ContractLine => ({ description: "", qty: "", unit: "", price: "", total: "" })
+
 function CreateContractDrawer({
   open,
   onOpenChange,
@@ -2093,45 +2104,58 @@ function CreateContractDrawer({
   onSuccess: () => void
 }) {
   const [personId, setPersonId] = useState("")
-  const [description, setDescription] = useState("")
-  const [price, setPrice] = useState("")
-  const [unit, setUnit] = useState("")
-  const [qty, setQty] = useState("")
-  const [total, setTotal] = useState("")
   const [status, setStatus] = useState("planned")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [lines, setLines] = useState<ContractLine[]>([emptyContractLine()])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const supabase = createClient()
   const { toast } = useToast()
 
-  // Auto-calculate total when price or qty changes
-  useEffect(() => {
-    const priceNum = parseFormattedNumber(price)
-    const qtyNum = parseFormattedNumber(qty)
-    const calculatedTotal = priceNum * qtyNum
-    setTotal(calculatedTotal > 0 ? handleNumberInput(calculatedTotal.toString()) : "")
-  }, [price, qty])
+  const updateLine = (index: number, field: keyof ContractLine, value: string) => {
+    setLines((prev) => {
+      const next = [...prev]
+      const line = { ...next[index], [field]: value }
+      // Auto-calculate total when qty or price changes
+      if (field === "qty" || field === "price") {
+        const t = parseFormattedNumber(line.qty) * parseFormattedNumber(line.price)
+        if (t > 0) line.total = handleNumberInput(t.toString())
+      }
+      next[index] = line
+      return next
+    })
+  }
+
+  const grandTotal = lines.reduce((sum, l) => sum + parseFormattedNumber(l.total), 0)
 
   const resetForm = () => {
     setPersonId("")
-    setDescription("")
-    setPrice("")
-    setUnit("")
-    setQty("")
-    setTotal("")
     setStatus("planned")
     setStartDate("")
     setEndDate("")
+    setLines([emptyContractLine()])
   }
 
   const handleSubmit = async () => {
-    // Validation
-    if (!personId || !description || !total) {
+    if (!personId) {
+      toast({ title: "Սխալ", description: "Խնդրում ենք ընտրել աշխատակցին", variant: "destructive" })
+      return
+    }
+
+    // Each non-empty line becomes a separate contract
+    const filledLines = lines.filter(
+      (l) => l.description.trim() || l.qty || l.price || l.total
+    )
+    if (filledLines.length === 0) {
+      toast({ title: "Սխալ", description: "Ավելացրեք նվազագույնը մեկ ծառայություն", variant: "destructive" })
+      return
+    }
+    const invalid = filledLines.find((l) => !l.description.trim() || parseFormattedNumber(l.total) <= 0)
+    if (invalid) {
       toast({
         title: "Սխալ",
-        description: "Խնդրում ենք լրացնել պարտադիր դաշտերը",
+        description: "Յուրաքանչյուր տող պետք է ունենա նկարագրություն և ընդհանուր գումար",
         variant: "destructive",
       })
       return
@@ -2140,36 +2164,37 @@ function CreateContractDrawer({
     setIsSubmitting(true)
 
     try {
-      const { error } = await supabase
-        .from("contract")
-        .insert({
-          project_id: parseInt(projectId),
-          person_id: parseInt(personId),
-          description,
-          price: price ? parseFormattedNumber(price) : null,
-          unit: unit || null,
-          qty: qty ? parseFormattedNumber(qty) : null,
-          total: parseFormattedNumber(total),
-          status,
-          start: startDate ? new Date(startDate).toISOString() : null,
-          end: endDate ? new Date(endDate).toISOString() : null,
-        })
+      const payload = filledLines.map((l) => ({
+        project_id: parseInt(projectId),
+        person_id: parseInt(personId),
+        description: l.description.trim(),
+        price: l.price ? parseFormattedNumber(l.price) : null,
+        unit: l.unit || null,
+        qty: l.qty ? parseFormattedNumber(l.qty) : null,
+        total: parseFormattedNumber(l.total),
+        status,
+        start: startDate ? new Date(startDate).toISOString() : null,
+        end: endDate ? new Date(endDate).toISOString() : null,
+      }))
 
+      const { error } = await supabase.from("contract").insert(payload)
       if (error) throw error
 
       toast({
         title: "Հաջողություն",
-        description: "Պայմանագիրը հաջողությամբ ավելացվեց",
+        description: payload.length === 1
+          ? "Պայմանագիրը հաջողությամբ ավելացվեց"
+          : `Ստեղծվեց ${payload.length} պայմանագիր`,
       })
 
       resetForm()
       onOpenChange(false)
       onSuccess()
     } catch (error) {
-      console.error("Error creating contract:", error)
+      console.error("Error creating contracts:", error)
       toast({
         title: "Սխալ",
-        description: "Չհաջողվեց ստեղծել պայմանագիրը",
+        description: "Չհաջողվեց ստեղծել պայմանագրերը",
         variant: "destructive",
       })
     } finally {
@@ -2179,136 +2204,166 @@ function CreateContractDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto sm:max-w-[50vw]">
+      <SheetContent className="overflow-y-auto sm:max-w-[70vw]">
         <SheetHeader>
-          <SheetTitle>Ստեղծել պայմանագիր</SheetTitle>
+          <SheetTitle>Ստեղծել պայմանագրեր</SheetTitle>
           <SheetDescription>
-            Ավելացրեք նոր աշխատանքային պայմանագիր
+            Ավելացրեք ծառայությունները տողերով․ յուրաքանչյուր տողը կդառնա առանձին պայմանագիր
           </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-4 py-6">
-          <div className="space-y-2">
-            <Label htmlFor="person">
-              Աշխատակից <span className="text-destructive">*</span>
-            </Label>
-            <Select value={personId} onValueChange={setPersonId}>
-              <SelectTrigger id="person">
-                <SelectValue placeholder="Ընտրել աշխատակցին" />
-              </SelectTrigger>
-              <SelectContent>
-                {staff.map((person) => (
-                  <SelectItem key={person.id} value={person.id.toString()}>
-                    {person.first_name} {person.last_lame || ""}
-                    {person.position && person.position.length > 0 && (
-                      <span className="text-muted-foreground text-xs ml-2">
-                        ({person.position.join(", ")})
-                      </span>
-                    )}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="description">
-              Նկարագրություն <span className="text-destructive">*</span>
-            </Label>
-            <Textarea
-              id="description"
-              placeholder="Աշխատանքի նկարագրությունը"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-            />
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="qty">Քանակ</Label>
+              <Label htmlFor="person">
+                Աշխատակից <span className="text-destructive">*</span>
+              </Label>
+              <Select value={personId} onValueChange={setPersonId}>
+                <SelectTrigger id="person">
+                  <SelectValue placeholder="Ընտրել աշխատակցին" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staff.map((person) => (
+                    <SelectItem key={person.id} value={person.id.toString()}>
+                      {person.first_name} {person.last_lame || ""}
+                      {person.position && person.position.length > 0 && (
+                        <span className="text-muted-foreground text-xs ml-2">
+                          ({person.position.join(", ")})
+                        </span>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="status">Վիճակ</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger id="status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="planned">Պլանավորված</SelectItem>
+                  <SelectItem value="in progress">Ընթացքի մեջ</SelectItem>
+                  <SelectItem value="done">Կատարված</SelectItem>
+                  <SelectItem value="rejected">Մերժված</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="start-date">Սկիզբ</Label>
               <Input
-                id="qty"
-                type="text"
-                placeholder="0"
-                value={qty}
-                onChange={(e) => setQty(handleNumberInput(e.target.value))}
+                id="start-date"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="unit">Միավոր</Label>
+              <Label htmlFor="end-date">Ավարտ</Label>
               <Input
-                id="unit"
-                placeholder="օր, մ², կտ և այլն"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
+                id="end-date"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
               />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="price">Գին</Label>
-            <Input
-              id="price"
-              type="text"
-              placeholder="0"
-              value={price}
-              onChange={(e) => setPrice(handleNumberInput(e.target.value))}
-            />
-          </div>
+          {/* Service lines — each becomes a separate contract */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <Label>Ծառայություններ</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setLines((prev) => [...prev, emptyContractLine()])}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Ավելացնել տող
+              </Button>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="total">
-              Ընդամենը <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="total"
-              type="text"
-              placeholder="0"
-              value={total}
-              onChange={(e) => setTotal(handleNumberInput(e.target.value))}
-            />
-            {price && qty && (
-              <p className="text-xs text-muted-foreground">
-                Ավտոմատ հաշվարկված: {qty} × {price} = {total}
-              </p>
-            )}
-          </div>
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[40%]">Ծառայություն</TableHead>
+                    <TableHead className="w-[10%]">Քնկ.</TableHead>
+                    <TableHead className="w-[12%]">Միավոր</TableHead>
+                    <TableHead className="w-[14%]">Գին</TableHead>
+                    <TableHead className="w-[16%]">Ընդամենը</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lines.map((line, index) => (
+                    <TableRow key={index}>
+                      <TableCell>
+                        <Input
+                          placeholder="Ծառայության նկարագրությունը"
+                          value={line.description}
+                          onChange={(e) => updateLine(index, "description", e.target.value)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="text"
+                          placeholder="0"
+                          value={line.qty}
+                          onChange={(e) => updateLine(index, "qty", handleNumberInput(e.target.value))}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          placeholder="օր, մ²..."
+                          value={line.unit}
+                          onChange={(e) => updateLine(index, "unit", e.target.value)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="text"
+                          placeholder="0"
+                          value={line.price}
+                          onChange={(e) => updateLine(index, "price", handleNumberInput(e.target.value))}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="text"
+                          placeholder="0"
+                          value={line.total}
+                          onChange={(e) => updateLine(index, "total", handleNumberInput(e.target.value))}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}
+                          disabled={lines.length === 1}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="status">Վիճակ</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger id="status">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="planned">Պլանավորված</SelectItem>
-                <SelectItem value="in progress">Ընթացքի մեջ</SelectItem>
-                <SelectItem value="done">Կատարված</SelectItem>
-                <SelectItem value="rejected">Մերժված</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="start-date">Սկիզբ</Label>
-            <Input
-              id="start-date"
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="end-date">Ավարտ</Label>
-            <Input
-              id="end-date"
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
+            <div className="flex justify-end items-center gap-3 pt-2 border-t">
+              <span className="text-sm text-muted-foreground">
+                {lines.filter((l) => l.description.trim()).length} պայմանագիր • Ընդհանուր գումար
+              </span>
+              <span className="text-xl font-bold">{grandTotal.toLocaleString()} ֏</span>
+            </div>
           </div>
         </div>
 
@@ -2440,7 +2495,7 @@ function EditContractDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto sm:max-w-[50vw]">
+      <SheetContent className="overflow-y-auto sm:max-w-[70vw]">
         <SheetHeader>
           <SheetTitle>Խմբագրել պայմանագիրը</SheetTitle>
           <SheetDescription>
@@ -2449,127 +2504,129 @@ function EditContractDrawer({
         </SheetHeader>
 
         <div className="space-y-4 py-6">
-          <div className="space-y-2">
-            <Label htmlFor="person">
-              Աշխատակից <span className="text-destructive">*</span>
-            </Label>
-            <Select value={personId} onValueChange={setPersonId}>
-              <SelectTrigger id="person">
-                <SelectValue placeholder="Ընտրել աշխատակցին" />
-              </SelectTrigger>
-              <SelectContent>
-                {staff.map((person) => (
-                  <SelectItem key={person.id} value={person.id.toString()}>
-                    {person.first_name} {person.last_lame || ""}
-                    {person.position && person.position.length > 0 && (
-                      <span className="text-muted-foreground text-xs ml-2">
-                        ({person.position.join(", ")})
-                      </span>
-                    )}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="description">
-              Նկարագրություն <span className="text-destructive">*</span>
-            </Label>
-            <Textarea
-              id="description"
-              placeholder="Աշխատանքի նկարագրությունը"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-            />
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="qty">Քանակ</Label>
+              <Label htmlFor="person">
+                Աշխատակից <span className="text-destructive">*</span>
+              </Label>
+              <Select value={personId} onValueChange={setPersonId}>
+                <SelectTrigger id="person">
+                  <SelectValue placeholder="Ընտրել աշխատակցին" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staff.map((person) => (
+                    <SelectItem key={person.id} value={person.id.toString()}>
+                      {person.first_name} {person.last_lame || ""}
+                      {person.position && person.position.length > 0 && (
+                        <span className="text-muted-foreground text-xs ml-2">
+                          ({person.position.join(", ")})
+                        </span>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="status">Վիճակ</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger id="status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="planned">Պլանավորված</SelectItem>
+                  <SelectItem value="in progress">Ընթացքի մեջ</SelectItem>
+                  <SelectItem value="done">Կատարված</SelectItem>
+                  <SelectItem value="rejected">Մերժված</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="start-date">Սկիզբ</Label>
               <Input
-                id="qty"
-                type="text"
-                placeholder="0"
-                value={qty}
-                onChange={(e) => setQty(handleNumberInput(e.target.value))}
+                id="start-date"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="unit">Միավոր</Label>
+              <Label htmlFor="end-date">Ավարտ</Label>
               <Input
-                id="unit"
-                placeholder="օր, մ², կտ և այլն"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
+                id="end-date"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
               />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="price">Գին</Label>
-            <Input
-              id="price"
-              type="text"
-              placeholder="0"
-              value={price}
-              onChange={(e) => setPrice(handleNumberInput(e.target.value))}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="total">
-              Ընդամենը <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="total"
-              type="text"
-              placeholder="0"
-              value={total}
-              onChange={(e) => setTotal(handleNumberInput(e.target.value))}
-            />
+          {/* Service line — same layout as the bulk creation drawer */}
+          <div className="space-y-2 pt-2">
+            <Label>Ծառայություն</Label>
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[42%]">Ծառայություն</TableHead>
+                    <TableHead className="w-[12%]">Քնկ.</TableHead>
+                    <TableHead className="w-[14%]">Միավոր</TableHead>
+                    <TableHead className="w-[16%]">Գին</TableHead>
+                    <TableHead className="w-[16%]">Ընդամենը</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow>
+                    <TableCell>
+                      <Input
+                        placeholder="Ծառայության նկարագրությունը"
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="text"
+                        placeholder="0"
+                        value={qty}
+                        onChange={(e) => setQty(handleNumberInput(e.target.value))}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        placeholder="օր, մ²..."
+                        value={unit}
+                        onChange={(e) => setUnit(e.target.value)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="text"
+                        placeholder="0"
+                        value={price}
+                        onChange={(e) => setPrice(handleNumberInput(e.target.value))}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="text"
+                        placeholder="0"
+                        value={total}
+                        onChange={(e) => setTotal(handleNumberInput(e.target.value))}
+                      />
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
             {price && qty && (
               <p className="text-xs text-muted-foreground">
                 Ավտոմատ հաշվարկված: {qty} × {price} = {total}
               </p>
             )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="status">Վիճակ</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger id="status">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="planned">Պլանավորված</SelectItem>
-                <SelectItem value="in progress">Ընթացքի մեջ</SelectItem>
-                <SelectItem value="done">Կատարված</SelectItem>
-                <SelectItem value="rejected">Մերժված</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="start-date">Սկիզբ</Label>
-            <Input
-              id="start-date"
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="end-date">Ավարտ</Label>
-            <Input
-              id="end-date"
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
           </div>
 
           {/* Contract Transactions Section */}
