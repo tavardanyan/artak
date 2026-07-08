@@ -31,10 +31,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, Save, ArrowRightLeft, CreditCard, Package, DollarSign, User, Plus } from "lucide-react"
+import { Loader2, Save, ArrowRightLeft, CreditCard, Package, DollarSign, User, Plus, ChevronLeft, ChevronRight } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
-import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
 
 interface PartnerStats {
   total_transfers: number
@@ -74,18 +73,6 @@ interface Transfer {
   }>
 }
 
-interface Transaction {
-  id: number
-  created_at: string
-  from: number
-  to: number
-  amount: number
-  accepted_at: string | null
-  rejected_at: string | null
-  from_account?: { name: string }
-  to_account?: { name: string }
-}
-
 interface Person {
   id: number
   type: string
@@ -118,15 +105,17 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
   const [partner, setPartner] = useState<Partner | null>(null)
   const [stats, setStats] = useState<PartnerStats | null>(null)
   const [transfers, setTransfers] = useState<Transfer[]>([])
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [transferPage, setTransferPage] = useState(1)
+  const [transferTotalCount, setTransferTotalCount] = useState(0)
+  const [loadingTransfers, setLoadingTransfers] = useState(false)
   const [persons, setPersons] = useState<Person[]>([])
   const [activeTab, setActiveTab] = useState("details")
 
   // Detail drawer states
   const [selectedTransferId, setSelectedTransferId] = useState<number | null>(null)
-  const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null)
   const [isTransferDetailOpen, setIsTransferDetailOpen] = useState(false)
-  const [isTransactionDetailOpen, setIsTransactionDetailOpen] = useState(false)
+
+  const TRANSFERS_PAGE_SIZE = 10
 
   // Form state
   const [name, setName] = useState("")
@@ -231,32 +220,12 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
           })
         }
 
-        // Fetch last 10 transfers for display
-        let displayTransferQuery = supabase
-          .from("transfer")
-          .select(`
-            id,
-            created_at,
-            from,
-            to,
-            acepted_at,
-            rejected_at,
-            from_warehouse:warehouse!transfer_from_fkey(name),
-            to_warehouse:warehouse!transfer_to_fkey(name),
-            transfer_item(qty, unit_price, unit_vat)
-          `)
-          .eq("from", partnerData.warehouse_id)
-
-        // Filter by project warehouse if provided
-        if (projectWarehouseId) {
-          displayTransferQuery = displayTransferQuery.eq("to", projectWarehouseId)
-        }
-
-        const { data: transfersData } = await displayTransferQuery
-          .order("created_at", { ascending: false })
-          .limit(10)
-
-        setTransfers((transfersData || []) as unknown as Transfer[])
+        // Fetch first page of transfers for display (server-side pagination)
+        await fetchTransfersPage(partnerData.warehouse_id, 1)
+      } else {
+        setTransfers([])
+        setTransferTotalCount(0)
+        setTransferPage(1)
       }
 
       // Fetch transactions TO partner's account
@@ -279,33 +248,6 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
         if (allTransactionsData) {
           statsData.total_transactions = allTransactionsData.reduce((sum, t) => sum + t.amount, 0)
         }
-
-        // Fetch last 10 transactions for display
-        let displayTransactionQuery = supabase
-          .from("transaction")
-          .select(`
-            id,
-            created_at,
-            from,
-            to,
-            amount,
-            accepted_at,
-            rejected_at,
-            from_account:account!transaction_from_fkey(name),
-            to_account:account!transaction_to_fkey(name)
-          `)
-          .eq("to", partnerData.account_id)
-
-        // Filter by project if provided
-        if (projectId) {
-          displayTransactionQuery = displayTransactionQuery.eq("project_id", projectId)
-        }
-
-        const { data: transactionsData } = await displayTransactionQuery
-          .order("created_at", { ascending: false })
-          .limit(10)
-
-        setTransactions((transactionsData || []) as unknown as Transaction[])
       }
 
       // Calculate balance
@@ -329,6 +271,45 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
       })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchTransfersPage = async (warehouseId: number, page: number) => {
+    setLoadingTransfers(true)
+    try {
+      let query = supabase
+        .from("transfer")
+        .select(`
+          id,
+          created_at,
+          from,
+          to,
+          acepted_at,
+          rejected_at,
+          from_warehouse:warehouse!transfer_from_fkey(name),
+          to_warehouse:warehouse!transfer_to_fkey(name),
+          transfer_item(qty, unit_price, unit_vat)
+        `, { count: "exact" })
+        .eq("from", warehouseId)
+
+      // Filter by project warehouse if provided
+      if (projectWarehouseId) {
+        query = query.eq("to", projectWarehouseId)
+      }
+
+      const from = (page - 1) * TRANSFERS_PAGE_SIZE
+      const { data, count, error } = await query
+        .order("created_at", { ascending: false })
+        .range(from, from + TRANSFERS_PAGE_SIZE - 1)
+
+      if (error) throw error
+      setTransfers((data || []) as unknown as Transfer[])
+      setTransferTotalCount(count || 0)
+      setTransferPage(page)
+    } catch (error) {
+      console.error("Error fetching transfers:", error)
+    } finally {
+      setLoadingTransfers(false)
     }
   }
 
@@ -594,126 +575,96 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
               </Card>
             )}
 
-            {/* Recent Activity Section */}
-            <div className="grid grid-cols-2 gap-6">
-              {/* Transfers */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <ArrowRightLeft className="h-4 w-4" />
-                    Վերջին տեղափոխություններ
-                  </CardTitle>
-                  <CardDescription>
-                    Վերջին 10 տեղափոխությունները այս գործընկերից
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {transfers.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <ArrowRightLeft className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                      <p>Տեղափոխություններ չկան</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs">Ամսաթիվ</TableHead>
-                            <TableHead className="text-xs">Դեպի</TableHead>
-                            <TableHead className="text-xs text-right">Գումար</TableHead>
-                            <TableHead className="text-xs">Կարգավիճակ</TableHead>
+            {/* Recent Transfers Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <ArrowRightLeft className="h-4 w-4" />
+                  Տեղափոխություններ
+                </CardTitle>
+                <CardDescription>
+                  Տեղափոխությունները այս գործընկերից
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingTransfers ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : transfers.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <ArrowRightLeft className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>Տեղափոխություններ չկան</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Ամսաթիվ</TableHead>
+                          <TableHead className="text-xs">Դեպի</TableHead>
+                          <TableHead className="text-xs text-right">Գումար</TableHead>
+                          <TableHead className="text-xs">Կարգավիճակ</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {transfers.map((transfer) => (
+                          <TableRow
+                            key={transfer.id}
+                            className="text-xs cursor-pointer hover:bg-accent/50"
+                            onClick={() => {
+                              setSelectedTransferId(transfer.id)
+                              setIsTransferDetailOpen(true)
+                            }}
+                          >
+                            <TableCell className="py-2">
+                              {formatDate(transfer.created_at)}
+                            </TableCell>
+                            <TableCell className="py-2">
+                              {(transfer.to_warehouse as any)?.name || "-"}
+                            </TableCell>
+                            <TableCell className="py-2 text-right font-medium">
+                              {formatCurrency(calculateTransferTotal(transfer))}
+                            </TableCell>
+                            <TableCell className="py-2">
+                              {getStatusBadge(transfer.acepted_at, transfer.rejected_at)}
+                            </TableCell>
                           </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {transfers.map((transfer) => (
-                            <TableRow
-                              key={transfer.id}
-                              className="text-xs cursor-pointer hover:bg-accent/50"
-                              onClick={() => {
-                                setSelectedTransferId(transfer.id)
-                                setIsTransferDetailOpen(true)
-                              }}
-                            >
-                              <TableCell className="py-2">
-                                {formatDate(transfer.created_at)}
-                              </TableCell>
-                              <TableCell className="py-2">
-                                {(transfer.to_warehouse as any)?.name || "-"}
-                              </TableCell>
-                              <TableCell className="py-2 text-right font-medium">
-                                {formatCurrency(calculateTransferTotal(transfer))}
-                              </TableCell>
-                              <TableCell className="py-2">
-                                {getStatusBadge(transfer.acepted_at, transfer.rejected_at)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
 
-              {/* Transactions */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <DollarSign className="h-4 w-4" />
-                    Վերջին վճարումներ
-                  </CardTitle>
-                  <CardDescription>
-                    Վերջին 10 վճարումները այս գործընկերին
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {transactions.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <DollarSign className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                      <p>Վճարումներ չկան</p>
+                {transferTotalCount > TRANSFERS_PAGE_SIZE && (
+                  <div className="flex items-center justify-between pt-4">
+                    <p className="text-sm text-muted-foreground">
+                      Ընդամենը՝ {transferTotalCount.toLocaleString()} • Էջ {transferPage}/{Math.max(1, Math.ceil(transferTotalCount / TRANSFERS_PAGE_SIZE))}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={transferPage <= 1 || loadingTransfers || !partner?.warehouse_id}
+                        onClick={() => partner?.warehouse_id && fetchTransfersPage(partner.warehouse_id, transferPage - 1)}
+                      >
+                        <ChevronLeft className="h-4 w-4 mr-1" />
+                        Նախորդ
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={transferPage >= Math.ceil(transferTotalCount / TRANSFERS_PAGE_SIZE) || loadingTransfers || !partner?.warehouse_id}
+                        onClick={() => partner?.warehouse_id && fetchTransfersPage(partner.warehouse_id, transferPage + 1)}
+                      >
+                        Հաջորդ
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </Button>
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs">Ամսաթիվ</TableHead>
-                            <TableHead className="text-xs">Հաշվից</TableHead>
-                            <TableHead className="text-xs text-right">Գումար</TableHead>
-                            <TableHead className="text-xs">Կարգավիճակ</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {transactions.map((transaction) => (
-                            <TableRow
-                              key={transaction.id}
-                              className="text-xs cursor-pointer hover:bg-accent/50"
-                              onClick={() => {
-                                setSelectedTransactionId(transaction.id)
-                                setIsTransactionDetailOpen(true)
-                              }}
-                            >
-                              <TableCell className="py-2">
-                                {formatDate(transaction.created_at)}
-                              </TableCell>
-                              <TableCell className="py-2">
-                                {(transaction.from_account as any)?.name || "-"}
-                              </TableCell>
-                              <TableCell className="py-2 text-right font-medium">
-                                {formatCurrency(transaction.amount)}
-                              </TableCell>
-                              <TableCell className="py-2">
-                                {getStatusBadge(transaction.accepted_at, transaction.rejected_at)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
             </TabsContent>
 
             <TabsContent value="contacts" className="space-y-6 mt-6">
@@ -805,12 +756,6 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
         open={isTransferDetailOpen}
         onOpenChange={setIsTransferDetailOpen}
         transferId={selectedTransferId}
-      />
-
-      <TransactionDetailDrawer
-        open={isTransactionDetailOpen}
-        onOpenChange={setIsTransactionDetailOpen}
-        transactionId={selectedTransactionId}
       />
     </Sheet>
   )
