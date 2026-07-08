@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Fragment } from "react"
 import { createClient } from "@/lib/supabase/client"
 
 export interface ProjectDashboardData {
@@ -47,7 +47,10 @@ import {
   Briefcase,
   Plus,
   ArrowUpRight,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
 import {
   Sheet,
@@ -306,6 +309,8 @@ export default function ProjectPageClient({
     el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" })
   }, [activeTab])
   const [isContractDrawerOpen, setIsContractDrawerOpen] = useState(false)
+  const [groupContractsByPerson, setGroupContractsByPerson] = useState(true)
+  const [expandedContractGroups, setExpandedContractGroups] = useState<Set<string>>(new Set())
   const [isEditContractDrawerOpen, setIsEditContractDrawerOpen] = useState(false)
   const [isEditProjectDrawerOpen, setIsEditProjectDrawerOpen] = useState(false)
   const [isPartnerDrawerOpen, setIsPartnerDrawerOpen] = useState(false)
@@ -1347,10 +1352,22 @@ export default function ProjectPageClient({
                   <CardTitle>Աշխատանքային պայմանագրեր</CardTitle>
                   <CardDescription>Նախագծի աշխատանքների և պայմանագրերի ցանկ</CardDescription>
                 </div>
-                <Button onClick={() => setIsContractDrawerOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Ավելացնել պայմանագիր
-                </Button>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="group-contracts"
+                      checked={groupContractsByPerson}
+                      onCheckedChange={setGroupContractsByPerson}
+                    />
+                    <label htmlFor="group-contracts" className="text-sm cursor-pointer whitespace-nowrap">
+                      Խմբավորել ըստ անձի
+                    </label>
+                  </div>
+                  <Button onClick={() => setIsContractDrawerOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Ավելացնել պայմանագիր
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -1375,73 +1392,149 @@ export default function ProjectPageClient({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {contracts.map((contract) => {
-                      const personName = contract.person
-                        ? `${contract.person.first_name} ${contract.person.last_lame || ""}`.trim()
-                        : "-"
+                    {(() => {
+                      const renderContractRow = (contract: Contract, indent = false) => {
+                        const personName = contract.person
+                          ? `${contract.person.first_name} ${contract.person.last_lame || ""}`.trim()
+                          : "-"
+                        const contractTransactions = contract.contract_transaction || []
+                        const transactionCount = contractTransactions.length
+                        const transactionTotal = contractTransactions.reduce((sum, ct) => {
+                          return sum + (ct.transaction?.amount || 0)
+                        }, 0)
 
-                      // Calculate transaction totals
-                      const contractTransactions = contract.contract_transaction || []
-                      const transactionCount = contractTransactions.length
-                      const transactionTotal = contractTransactions.reduce((sum, ct) => {
-                        return sum + (ct.transaction?.amount || 0)
-                      }, 0)
-
-                      return (
-                        <TableRow
-                          key={contract.id}
-                          className="cursor-pointer hover:bg-accent"
-                          onClick={() => {
-                            setSelectedContract(contract)
-                            setIsEditContractDrawerOpen(true)
-                          }}
-                        >
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{personName}</p>
-                              {contract.person?.position && contract.person.position.length > 0 && (
-                                <p className="text-xs text-muted-foreground">
-                                  {contract.person.position.join(", ")}
-                                </p>
+                        return (
+                          <TableRow
+                            key={contract.id}
+                            className="cursor-pointer hover:bg-accent"
+                            onClick={() => {
+                              setSelectedContract(contract)
+                              setIsEditContractDrawerOpen(true)
+                            }}
+                          >
+                            <TableCell className={indent ? "pl-10" : undefined}>
+                              {indent ? (
+                                <span className="text-xs text-muted-foreground">№{contract.id}</span>
+                              ) : (
+                                <div>
+                                  <p className="font-medium">{personName}</p>
+                                  {contract.person?.position && contract.person.position.length > 0 && (
+                                    <p className="text-xs text-muted-foreground">
+                                      {contract.person.position.join(", ")}
+                                    </p>
+                                  )}
+                                </div>
                               )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="max-w-[300px]">
-                            <p className="line-clamp-2">{contract.description}</p>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {contract.qty || "-"} {contract.unit || ""}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {contract.price ? formatCurrency(contract.price) : "-"}
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {formatCurrency(contract.total)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {transactionCount > 0 ? (
-                              <div>
-                                <p className="font-medium">{formatCurrency(transactionTotal)}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {transactionCount} գործարք
-                                </p>
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {getContractStatusBadge(contract.status)}
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {formatDate(contract.start)}
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {formatDate(contract.end)}
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
+                            </TableCell>
+                            <TableCell className="max-w-[300px]">
+                              <p className="line-clamp-2">{contract.description}</p>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {contract.qty || "-"} {contract.unit || ""}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {contract.price ? formatCurrency(contract.price) : "-"}
+                            </TableCell>
+                            <TableCell className="text-right font-medium">
+                              {formatCurrency(contract.total)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {transactionCount > 0 ? (
+                                <div>
+                                  <p className="font-medium">{formatCurrency(transactionTotal)}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {transactionCount} գործարք
+                                  </p>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {getContractStatusBadge(contract.status)}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {formatDate(contract.start)}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {formatDate(contract.end)}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      }
+
+                      if (!groupContractsByPerson) {
+                        return contracts.map((contract) => renderContractRow(contract))
+                      }
+
+                      // Group contracts by person, preserving order of first appearance
+                      const groups: { key: string; name: string; positions: string[]; contracts: Contract[] }[] = []
+                      const groupIndex = new Map<string, number>()
+                      contracts.forEach((contract) => {
+                        const key = contract.person_id ? `p${contract.person_id}` : "none"
+                        const name = contract.person
+                          ? `${contract.person.first_name} ${contract.person.last_lame || ""}`.trim()
+                          : "-"
+                        if (!groupIndex.has(key)) {
+                          groupIndex.set(key, groups.length)
+                          groups.push({ key, name, positions: contract.person?.position || [], contracts: [] })
+                        }
+                        groups[groupIndex.get(key)!].contracts.push(contract)
+                      })
+
+                      return groups.map((group) => {
+                        const isExpanded = expandedContractGroups.has(group.key)
+                        const groupTotal = group.contracts.reduce((s, c) => s + c.total, 0)
+                        const groupPaid = group.contracts.reduce(
+                          (s, c) => s + (c.contract_transaction || []).reduce((ss, ct) => ss + (ct.transaction?.amount || 0), 0),
+                          0
+                        )
+                        return (
+                          <Fragment key={group.key}>
+                            <TableRow
+                              className="cursor-pointer bg-muted/50 hover:bg-accent"
+                              onClick={() => {
+                                setExpandedContractGroups((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(group.key)) next.delete(group.key)
+                                  else next.add(group.key)
+                                  return next
+                                })
+                              }}
+                            >
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  )}
+                                  <div>
+                                    <p className="font-medium">{group.name}</p>
+                                    {group.positions.length > 0 && (
+                                      <p className="text-xs text-muted-foreground">{group.positions.join(", ")}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground text-sm">
+                                {group.contracts.length} պայմանագիր
+                              </TableCell>
+                              <TableCell />
+                              <TableCell />
+                              <TableCell className="text-right font-semibold">
+                                {formatCurrency(groupTotal)}
+                              </TableCell>
+                              <TableCell className="text-right font-semibold">
+                                {groupPaid > 0 ? formatCurrency(groupPaid) : <span className="text-muted-foreground font-normal">-</span>}
+                              </TableCell>
+                              <TableCell colSpan={3} />
+                            </TableRow>
+                            {isExpanded && group.contracts.map((contract) => renderContractRow(contract, true))}
+                          </Fragment>
+                        )
+                      })
+                    })()}
                   </TableBody>
                 </Table>
               )}
