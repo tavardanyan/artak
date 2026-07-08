@@ -63,11 +63,26 @@ export default function UncheckedItemsPage() {
   }
 
   const fetchAllParentItems = async () => {
-    const { data } = await supabase
-      .from("item")
-      .select("id, name, unit, created_at, parent, seen, label")
-      .is("parent", null)
-    setAllParentItems(data || [])
+    // Supabase caps a single request at 1000 rows — page through ALL parentless
+    // items, otherwise recently created/confirmed items silently vanish from
+    // the similarity suggestions
+    const all: Item[] = []
+    const pageSize = 1000
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from("item")
+        .select("id, name, unit, created_at, parent, seen, label")
+        .is("parent", null)
+        .order("id")
+        .range(from, from + pageSize - 1)
+      if (error) {
+        console.error("Error fetching parent items:", error)
+        break
+      }
+      all.push(...(data || []))
+      if (!data || data.length < pageSize) break
+    }
+    setAllParentItems(all)
   }
 
   const fetchItems = async () => {
@@ -99,10 +114,14 @@ export default function UncheckedItemsPage() {
     }
   }
 
+  // Collapse repeated whitespace and trim so formatting noise doesn't dilute similarity
+  const normalizeName = (s: string) => s.trim().replace(/\s+/g, " ")
+
   const getParentSuggestions = (itemName: string, currentItemId: number): ParentSuggestion[] => {
+    const target = normalizeName(itemName)
     return allParentItems
       .filter((item) => item.id !== currentItemId)
-      .map((item) => ({ id: item.id, name: item.name, similarity: stringSimilarity(itemName, item.name) }))
+      .map((item) => ({ id: item.id, name: item.name, similarity: stringSimilarity(target, normalizeName(item.name)) }))
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, matchLimit)
   }
@@ -121,6 +140,16 @@ export default function UncheckedItemsPage() {
       }
       setItems((prev) => prev.filter((i) => i.id !== item.id))
       setTotalItems((prev) => prev - 1)
+      // Keep the suggestion pool in sync: an item linked to a parent is a child
+      // now (not a parent candidate); a confirmed standalone item must be offered
+      // as a parent for the remaining unchecked ones
+      if (parentId) {
+        setAllParentItems((prev) => prev.filter((p) => p.id !== item.id))
+      } else {
+        setAllParentItems((prev) =>
+          prev.some((p) => p.id === item.id) ? prev : [...prev, { ...item, seen: true }]
+        )
+      }
       toast({ title: "Հաջողություն", description: parentId ? "Ապրանքը կապվեց" : "Նշվեց դիտված" })
     } catch (error: any) {
       console.error("Error:", error)
