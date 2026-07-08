@@ -313,7 +313,12 @@ export default function ProjectPageClient({
   const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null)
   const [internalAccountIds, setInternalAccountIds] = useState<Set<number>>(new Set())
   const [warehouseStockValue, setWarehouseStockValue] = useState(initialDashboard.warehouse_stock_value || 0)
-  const [transferVat, setTransferVat] = useState({ incoming: initialDashboard.transfer_vat_incoming || 0, outgoing: 0 })
+  const [incomingTransferStats, setIncomingTransferStats] = useState({
+    totalAll: 0,
+    totalWithVat: 0,
+    vatTotal: initialDashboard.transfer_vat_incoming || 0,
+    totalWithoutInvoice: 0,
+  })
   const [tasks, setTasks] = useState<Array<{ id: number; title: string; text: string | null; project_id: number | null; day: string; seen: boolean }>>([])
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<any>(null)
@@ -360,24 +365,33 @@ export default function ProjectPageClient({
 
   const fetchTransferVat = async () => {
     if (!project?.warehouse_id) {
-      setTransferVat({ incoming: 0, outgoing: 0 })
+      setIncomingTransferStats({ totalAll: 0, totalWithVat: 0, vatTotal: 0, totalWithoutInvoice: 0 })
       return
     }
     const wid = project.warehouse_id
+    // All accepted incoming transfers into the project warehouse
     const { data } = await supabase
       .from("transfer")
-      .select(`id, from, to, transfer_item(qty, unit_vat)`)
-      .or(`from.eq.${wid},to.eq.${wid}`)
+      .select(`id, invoice_id, transfer_item(qty, unit_price, unit_vat)`)
+      .eq("to", wid)
       .not("acepted_at", "is", null)
       .is("rejected_at", null)
 
-    let incoming = 0, outgoing = 0
+    let totalAll = 0, totalWithVat = 0, vatTotal = 0, totalWithoutInvoice = 0
     ;(data || []).forEach((t: any) => {
-      const vat = (t.transfer_item || []).reduce((s: number, ti: any) => s + (ti.qty || 0) * (ti.unit_vat || 0), 0)
-      if (t.to === wid) incoming += vat
-      else if (t.from === wid) outgoing += vat
+      const items = t.transfer_item || []
+      const total = items.reduce(
+        (s: number, ti: any) => s + (ti.qty || 0) * ((ti.unit_price || 0) + (ti.unit_vat || 0)),
+        0
+      )
+      const vat = items.reduce((s: number, ti: any) => s + (ti.qty || 0) * (ti.unit_vat || 0), 0)
+
+      totalAll += total
+      vatTotal += vat
+      if (vat !== 0) totalWithVat += total
+      if (!t.invoice_id) totalWithoutInvoice += total
     })
-    setTransferVat({ incoming, outgoing })
+    setIncomingTransferStats({ totalAll, totalWithVat, vatTotal, totalWithoutInvoice })
   }
 
   const fetchTasks = async () => {
@@ -1116,13 +1130,28 @@ export default function ProjectPageClient({
                 </Card>
                 */}
 
-                {/* VAT */}
+                {/* Incoming transfers / VAT breakdown */}
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium">ԱԱՀ</CardTitle>
+                    <CardTitle className="text-sm font-medium">Մուտքային տեղափոխումներ / ԱԱՀ</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-2xl font-bold">{formatCurrency(transferVat.incoming)}</p>
+                    <p className="text-2xl font-bold">{formatCurrency(incomingTransferStats.vatTotal)}</p>
+                    <p className="text-xs text-muted-foreground mb-3">ԱԱՀ ընդամենը</p>
+                    <div className="space-y-1.5 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Բոլոր մուտքերը</span>
+                        <span className="font-medium">{formatCurrency(incomingTransferStats.totalAll)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">ԱԱՀ-ով մուտքեր</span>
+                        <span className="font-medium">{formatCurrency(incomingTransferStats.totalWithVat)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Առանց հաշիվ-ապրանքագրի</span>
+                        <span className="font-medium">{formatCurrency(incomingTransferStats.totalWithoutInvoice)}</span>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
