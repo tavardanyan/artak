@@ -311,6 +311,14 @@ export default function ProjectPageClient({
   const [isContractDrawerOpen, setIsContractDrawerOpen] = useState(false)
   const [groupContractsByPerson, setGroupContractsByPerson] = useState(true)
   const [expandedContractGroups, setExpandedContractGroups] = useState<Set<string>>(new Set())
+  // Accepted project payments to persons that are NOT linked to any contract, grouped per person
+  const [unlinkedStaffPayments, setUnlinkedStaffPayments] = useState<{
+    person_id: number
+    name: string
+    positions: string[]
+    total: number
+    count: number
+  }[]>([])
   const [isEditContractDrawerOpen, setIsEditContractDrawerOpen] = useState(false)
   const [isEditProjectDrawerOpen, setIsEditProjectDrawerOpen] = useState(false)
   const [isPartnerDrawerOpen, setIsPartnerDrawerOpen] = useState(false)
@@ -360,6 +368,7 @@ export default function ProjectPageClient({
     if (project?.id) {
       fetchTransactions()
       fetchContracts()
+      fetchUnlinkedStaffPayments()
       fetchStaff()
       fetchContacts()
       fetchSuppliers()
@@ -653,6 +662,52 @@ export default function ProjectPageClient({
       }
     } catch (error) {
       console.error("Error fetching contracts:", error)
+    }
+  }
+
+  const fetchUnlinkedStaffPayments = async () => {
+    if (!project?.id) return
+    try {
+      // Accepted project payments with their contract links (empty link = "without contract")
+      const { data: txs } = await supabase
+        .from("transaction")
+        .select("id, amount, to, contract_transaction(transaction_id)")
+        .eq("project_id", project.id)
+        .not("accepted_at", "is", null)
+        .is("rejected_at", null)
+
+      const unlinked = (txs || []).filter((t: any) => !(t.contract_transaction || []).length)
+      if (unlinked.length === 0) {
+        setUnlinkedStaffPayments([])
+        return
+      }
+
+      // Keep only payments that went to a person's account
+      const accountIds = Array.from(new Set(unlinked.map((t: any) => t.to)))
+      const { data: personsData } = await supabase
+        .from("person")
+        .select("id, first_name, last_lame, position, account_id")
+        .in("account_id", accountIds)
+
+      const personByAccount = new Map((personsData || []).map((p: any) => [p.account_id, p]))
+      const byPerson = new Map<number, { person_id: number; name: string; positions: string[]; total: number; count: number }>()
+      unlinked.forEach((t: any) => {
+        const p = personByAccount.get(t.to)
+        if (!p) return
+        const entry = byPerson.get(p.id) || {
+          person_id: p.id,
+          name: `${p.first_name} ${p.last_lame || ""}`.trim(),
+          positions: p.position || [],
+          total: 0,
+          count: 0,
+        }
+        entry.total += t.amount
+        entry.count += 1
+        byPerson.set(p.id, entry)
+      })
+      setUnlinkedStaffPayments(Array.from(byPerson.values()))
+    } catch (error) {
+      console.error("Error fetching unlinked staff payments:", error)
     }
   }
 
@@ -1371,7 +1426,7 @@ export default function ProjectPageClient({
               </div>
             </CardHeader>
             <CardContent>
-              {contracts.length === 0 ? (
+              {contracts.length === 0 && unlinkedStaffPayments.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Briefcase className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
                   <p className="text-muted-foreground">Պայմանագրեր չկան</p>
@@ -1482,13 +1537,25 @@ export default function ProjectPageClient({
                         groups[groupIndex.get(key)!].contracts.push(contract)
                       })
 
+                      // Persons paid on this project without any contract link get their own group
+                      unlinkedStaffPayments.forEach((up) => {
+                        const key = `p${up.person_id}`
+                        if (!groupIndex.has(key)) {
+                          groupIndex.set(key, groups.length)
+                          groups.push({ key, name: up.name, positions: up.positions, contracts: [] })
+                        }
+                      })
+
+                      const unlinkedByKey = new Map(unlinkedStaffPayments.map((up) => [`p${up.person_id}`, up]))
+
                       return groups.map((group) => {
                         const isExpanded = expandedContractGroups.has(group.key)
+                        const unlinked = unlinkedByKey.get(group.key)
                         const groupTotal = group.contracts.reduce((s, c) => s + c.total, 0)
                         const groupPaid = group.contracts.reduce(
                           (s, c) => s + (c.contract_transaction || []).reduce((ss, ct) => ss + (ct.transaction?.amount || 0), 0),
                           0
-                        )
+                        ) + (unlinked?.total || 0)
                         return (
                           <Fragment key={group.key}>
                             <TableRow
@@ -1519,6 +1586,7 @@ export default function ProjectPageClient({
                               </TableCell>
                               <TableCell className="text-muted-foreground text-sm">
                                 {group.contracts.length} պայմանագիր
+                                {unlinked ? ` + ${unlinked.count} առանց պայմ.` : ""}
                               </TableCell>
                               <TableCell />
                               <TableCell />
@@ -1531,6 +1599,26 @@ export default function ProjectPageClient({
                               <TableCell colSpan={3} />
                             </TableRow>
                             {isExpanded && group.contracts.map((contract) => renderContractRow(contract, true))}
+                            {isExpanded && unlinked && (
+                              <TableRow key={`${group.key}-unlinked`} className="text-muted-foreground">
+                                <TableCell className="pl-10">
+                                  <span className="text-xs">Առանց պայմանագրի</span>
+                                </TableCell>
+                                <TableCell className="text-sm">
+                                  Նախագծին կապված վճարումներ առանց պայմանագրի
+                                </TableCell>
+                                <TableCell />
+                                <TableCell />
+                                <TableCell />
+                                <TableCell className="text-right">
+                                  <div>
+                                    <p className="font-medium text-foreground">{formatCurrency(unlinked.total)}</p>
+                                    <p className="text-xs">{unlinked.count} գործարք</p>
+                                  </div>
+                                </TableCell>
+                                <TableCell colSpan={3} />
+                              </TableRow>
+                            )}
                           </Fragment>
                         )
                       })
@@ -1538,11 +1626,12 @@ export default function ProjectPageClient({
                   </TableBody>
                 </Table>
               )}
-              {contracts.length > 0 && (() => {
+              {(contracts.length > 0 || unlinkedStaffPayments.length > 0) && (() => {
                 const totalAmount = contracts.reduce((sum, c) => sum + c.total, 0)
+                const unlinkedTotal = unlinkedStaffPayments.reduce((sum, up) => sum + up.total, 0)
                 const totalPaid = contracts.reduce((sum, c) => {
                   return sum + (c.contract_transaction || []).reduce((s, ct) => s + (ct.transaction?.amount || 0), 0)
-                }, 0)
+                }, 0) + unlinkedTotal
                 return (
                   <div className="flex justify-end items-center gap-8 pt-4 mt-4 border-t">
                     <div className="text-right">
@@ -1552,6 +1641,9 @@ export default function ProjectPageClient({
                     <div className="text-right">
                       <p className="text-sm text-muted-foreground">Ընդամենը գործարքներ</p>
                       <p className="text-lg font-bold">{formatCurrency(totalPaid)}</p>
+                      {unlinkedTotal > 0 && (
+                        <p className="text-xs text-muted-foreground">որից առանց պայմ.՝ {formatCurrency(unlinkedTotal)}</p>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-muted-foreground">Մնացորդ</p>

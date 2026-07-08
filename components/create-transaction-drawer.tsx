@@ -321,10 +321,11 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       return
     }
 
-    if (showContractSelect && !selectedContract) {
+    // Paying a person: project is mandatory (contract is optional)
+    if (showContractSelect && selectedProject === "none") {
       toast({
         title: "Սխալ",
-        description: "Խնդրում ենք ընտրել պայմանագիրը կամ \"Առանց պայմանագրի\"",
+        description: "Անձին վճարելիս պարտադիր է ընտրել նախագիծը",
         variant: "destructive",
       })
       return
@@ -577,13 +578,13 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
             </div>
           )}
 
-          {/* Contract Selection - shown only if to-account has person_id */}
+          {/* Contract Selection - shown only if to-account has person_id (optional) */}
           {showContractSelect && (
             <div className="space-y-2">
-              <Label>Պայմանագիր <span className="text-destructive">*</span></Label>
-              <Select value={selectedContract} onValueChange={setSelectedContract}>
+              <Label>Պայմանագիր <span className="text-muted-foreground text-xs">(ոչ պարտադիր)</span></Label>
+              <Select value={selectedContract || "none"} onValueChange={setSelectedContract}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Ընտրեք պայմանագիրը" />
+                  <SelectValue placeholder="Առանց պայմանագրի" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Առանց պայմանագրի</SelectItem>
