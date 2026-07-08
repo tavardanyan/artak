@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, Check } from "lucide-react"
+import { Loader2, Check, Search } from "lucide-react"
 import { stringSimilarity } from "@/lib/levenshtein"
 import { LabelCell } from "@/components/label-cell"
 import { LabelFilter } from "@/components/label-filter"
@@ -40,6 +41,7 @@ export default function UncheckedItemsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
   const [labelFilter, setLabelFilter] = useState<number | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
 
   const { toast } = useToast()
   const supabase = createClient()
@@ -147,7 +149,9 @@ export default function UncheckedItemsPage() {
         setAllParentItems((prev) => prev.filter((p) => p.id !== item.id))
       } else {
         setAllParentItems((prev) =>
-          prev.some((p) => p.id === item.id) ? prev : [...prev, { ...item, seen: true }]
+          prev.some((p) => p.id === item.id)
+            ? prev.map((p) => (p.id === item.id ? { ...p, seen: true } : p))
+            : [...prev, { ...item, seen: true }]
         )
       }
       toast({ title: "Հաջողություն", description: parentId ? "Ապրանքը կապվեց" : "Նշվեց դիտված" })
@@ -173,7 +177,33 @@ export default function UncheckedItemsPage() {
     }
   }
 
-  const visibleItems = labelFilter == null ? items : items.filter((i) => (i.label ?? 0) === labelFilter)
+  // Google-like relevance: exact > substring > all words present > fuzzy similarity
+  const searchScore = (name: string, query: string): number => {
+    const n = normalizeName(name).toLowerCase()
+    const q = normalizeName(query).toLowerCase()
+    if (!q) return 0
+    if (n === q) return 200
+    if (n.startsWith(q)) return 160
+    if (n.includes(q)) return 150
+    const tokens = q.split(" ").filter(Boolean)
+    if (tokens.length > 1 && tokens.every((t) => n.includes(t))) return 120
+    return stringSimilarity(q, n)
+  }
+
+  const isSearching = searchQuery.trim().length > 0
+
+  // Search runs over ALL unchecked items (every page), ranked by relevance
+  const searchResults = isSearching
+    ? allParentItems
+        .filter((i) => i.seen !== true)
+        .map((i) => ({ item: i, score: searchScore(i.name, searchQuery) }))
+        .filter((r) => r.score >= 40)
+        .sort((a, b) => b.score - a.score)
+        .map((r) => r.item)
+    : []
+
+  const baseItems = isSearching ? searchResults : items
+  const visibleItems = labelFilter == null ? baseItems : baseItems.filter((i) => (i.label ?? 0) === labelFilter)
 
   return (
     <div className="space-y-4">
@@ -183,15 +213,30 @@ export default function UncheckedItemsPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-lg">Ընդամենը {totalItems}</CardTitle>
-          <LabelFilter value={labelFilter} onChange={setLabelFilter} />
+        <CardHeader className="pb-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">
+              {isSearching ? `Գտնվեց ${visibleItems.length}` : `Ընդամենը ${totalItems}`}
+            </CardTitle>
+            <LabelFilter value={labelFilter} onChange={setLabelFilter} />
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Input
+              placeholder="Որոնել ապրանք անվանումով (նաև մոտավոր համընկնումներ)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 h-11 text-base"
+            />
+          </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {loading && !isSearching ? (
             <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-          ) : items.length === 0 ? (
-            <div className="text-center py-8 text-sm text-muted-foreground">Բոլոր ապրանքները ստուգված են</div>
+          ) : visibleItems.length === 0 ? (
+            <div className="text-center py-8 text-sm text-muted-foreground">
+              {isSearching ? "Համընկնումներ չեն գտնվել" : "Բոլոր ապրանքները ստուգված են"}
+            </div>
           ) : (
             <>
               <Table>
@@ -242,7 +287,7 @@ export default function UncheckedItemsPage() {
                   })}
                 </TableBody>
               </Table>
-              {totalPages > 1 && (
+              {!isSearching && totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4">
                   <div className="text-xs text-muted-foreground">Էջ {currentPage} / {totalPages}</div>
                   <div className="flex gap-2">
