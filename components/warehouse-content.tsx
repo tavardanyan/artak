@@ -1074,7 +1074,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
         {/* Items Tab */}
         <TabsContent value="items" className="space-y-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Ապրանքների պաշար</CardTitle>
@@ -1082,17 +1082,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     Հասանելի ապրանքներ այս պահեստում
                   </CardDescription>
                 </div>
-                <div className="relative flex-1 max-w-sm mx-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Որոնել ապրանք..."
-                    value={itemSearchQuery}
-                    onChange={(e) => setItemSearchQuery(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-                <ExportButtons onExport={(f) => exportItems(false, f)} />
-                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mx-3" />
+                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mr-3" />
                 {selectedItemIds.size > 0 && (
                   <Button
                     onClick={() => {
@@ -1117,6 +1107,18 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     Ստեղծել տեղափոխում ({selectedItemIds.size})
                   </Button>
                 )}
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    placeholder="Որոնել ապրանք..."
+                    value={itemSearchQuery}
+                    onChange={(e) => setItemSearchQuery(e.target.value)}
+                    className="pl-10 h-11 text-base"
+                  />
+                </div>
+                <ExportButtons onExport={(f) => exportItems(false, f)} />
               </div>
             </CardHeader>
             <CardContent>
@@ -1219,7 +1221,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
         <TabsContent value="services" className="space-y-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Ծառայություններ</CardTitle>
@@ -1227,17 +1229,19 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                     Ծառայության տեսակի ապրանքներ այս պահեստում
                   </CardDescription>
                 </div>
-                <div className="relative flex-1 max-w-sm mx-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mr-3" />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                   <Input
                     placeholder="Որոնել ծառայություն..."
                     value={itemSearchQuery}
                     onChange={(e) => setItemSearchQuery(e.target.value)}
-                    className="pl-9"
+                    className="pl-10 h-11 text-base"
                   />
                 </div>
                 <ExportButtons onExport={(f) => exportItems(true, f)} />
-                <LabelFilter value={itemLabelFilter} onChange={setItemLabelFilter} className="mx-3" />
               </div>
             </CardHeader>
             <CardContent>
