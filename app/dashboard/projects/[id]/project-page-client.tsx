@@ -443,8 +443,10 @@ export default function ProjectPageClient({
         const ids = subContracts.map((c: any) => c.id)
         const { data: cts } = await supabase
           .from("contract_transaction")
-          .select("contact_id, transaction:transaction_id(amount)")
+          .select("contact_id, transaction:transaction_id!inner(amount, accepted_at, rejected_at)")
           .in("contact_id", ids)
+          .not("transaction.accepted_at", "is", null)
+          .is("transaction.rejected_at", null)
         contractPaid = (cts || []).reduce((s: number, ct: any) => s + (ct.transaction?.amount || 0), 0)
       }
       contractsRemaining += contractTotals - contractPaid
@@ -612,6 +614,8 @@ export default function ProjectPageClient({
                   id,
                   amount,
                   created_at,
+                  accepted_at,
+                  rejected_at,
                   from_account:from(name, currency),
                   to_account:to(name, currency)
                 )
@@ -625,12 +629,15 @@ export default function ProjectPageClient({
 
             return {
               ...contract,
-              contract_transaction: ctData?.map(ct => ({
-                id: ct.contact_id, // Using contact_id as id
-                contact_id: ct.contact_id,
-                transaction_id: ct.transaction_id,
-                transaction: ct.transaction
-              })) || []
+              // Only accepted payments count as contract payments
+              contract_transaction: (ctData || [])
+                .filter((ct: any) => ct.transaction?.accepted_at && !ct.transaction?.rejected_at)
+                .map(ct => ({
+                  id: ct.contact_id, // Using contact_id as id
+                  contact_id: ct.contact_id,
+                  transaction_id: ct.transaction_id,
+                  transaction: ct.transaction
+                }))
             }
           })
         )
@@ -734,13 +741,13 @@ export default function ProjectPageClient({
                   return sum + (item.qty * item.unit_price) + (item.qty * item.unit_vat)
                 }, 0)
 
-                if (transfer.ximichit) {
-                  stats.total_transfers_sum_ximichit += transferTotal
-                } else {
-                  stats.total_transfers_sum += transferTotal
-                }
-
                 if (transfer.acepted_at && !transfer.rejected_at) {
+                  // Only accepted transfers count toward totals and balance
+                  if (transfer.ximichit) {
+                    stats.total_transfers_sum_ximichit += transferTotal
+                  } else {
+                    stats.total_transfers_sum += transferTotal
+                  }
                   stats.approved_transfers++
                   stats.approved_transfers_sum += transferTotal
                 } else if (!transfer.acepted_at && !transfer.rejected_at) {
