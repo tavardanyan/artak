@@ -118,6 +118,8 @@ interface Transaction {
   amount: number
   note: string | null
   created_at: string
+  accepted_at?: string | null
+  rejected_at?: string | null
   from_account?: {
     name: string
     currency: string
@@ -447,11 +449,13 @@ export default function ProjectPageClient({
       }
       contractsRemaining += contractTotals - contractPaid
 
-      // Transactions for diff (matches table logic)
+      // Transactions for diff (matches table logic) — accepted only
       const { data: subTxs } = await supabase
         .from("transaction")
         .select("amount, from")
         .eq("project_id", sub.id)
+        .not("accepted_at", "is", null)
+        .is("rejected_at", null)
       const partnerAccId = sub.partner?.account_id
       ;(subTxs || []).forEach((t: any) => {
         if (partnerAccId && t.from === partnerAccId) txIncome += t.amount
@@ -895,6 +899,8 @@ export default function ProjectPageClient({
             let txIncome = 0, txOutcome = 0
             if (hasTransactions) {
               transactions.forEach(t => {
+                // Only accepted, non-rejected transactions count toward totals
+                if (!t.accepted_at || t.rejected_at) return
                 if (partnerAccountId && t.from === partnerAccountId) txIncome += t.amount
                 else txOutcome += t.amount
               })

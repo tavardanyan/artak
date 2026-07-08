@@ -361,6 +361,15 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
         project_id: selectedProject === "none" ? null : parseInt(selectedProject),
       }
 
+      // A contract-linked payment always belongs to the contract's project,
+      // otherwise project expense and contract totals drift apart
+      if (selectedContract && selectedContract !== "none" && showContractSelect) {
+        const linkedContract = contracts.find(c => c.id.toString() === selectedContract)
+        if (linkedContract?.project_id) {
+          transactionPayload.project_id = linkedContract.project_id
+        }
+      }
+
       // Add custom created_at if specified
       if (createdAt) {
         transactionPayload.created_at = new Date(createdAt).toISOString()
