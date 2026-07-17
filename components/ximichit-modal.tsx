@@ -97,6 +97,11 @@ export function XimichitModal({
       toast({ title: "Սխալ", description: "Ընտրեք պահեստ", variant: "destructive" })
       return
     }
+    // A transfer must have at least one item — don't duplicate an empty one
+    if (transferItems.length === 0) {
+      toast({ title: "Սխալ", description: "Դատարկ տեղափոխումը հնարավոր չէ կրկնօրինակել", variant: "destructive" })
+      return
+    }
     if (selectedWarehouseId === fromWarehouseId) {
       toast({ title: "Սխալ", description: "Նպատակային պահեստը չի կարող լինել նույնը, ինչ աղբյուրը", variant: "destructive" })
       return

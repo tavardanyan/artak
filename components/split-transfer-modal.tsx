@@ -191,6 +191,15 @@ export function SplitTransferModal({
       })
       return
     }
+    // A transfer must keep at least one item \u2014 never leave the original empty
+    if (leftItems.length === 0) {
+      toast({
+        title: "\u054d\u056d\u0561\u056c",
+        description: "\u0531\u057c\u0561\u057b\u056b\u0576 \u057f\u0565\u0572\u0561\u0583\u0578\u056d\u0578\u0582\u0574\u0568 \u0579\u056b \u056f\u0561\u0580\u0578\u0572 \u0574\u0576\u0561\u056c \u0561\u057c\u0561\u0576\u0581 \u0561\u057a\u0580\u0561\u0576\u0584\u0576\u0565\u0580\u056b",
+        variant: "destructive",
+      })
+      return
+    }
 
     setSaving(true)
     try {
@@ -516,7 +525,7 @@ export function SplitTransferModal({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             {"\u0549\u0565\u0572\u0561\u0580\u056f\u0565\u056c"}
           </Button>
-          <Button onClick={handleSplit} disabled={saving || rightItems.length === 0}>
+          <Button onClick={handleSplit} disabled={saving || rightItems.length === 0 || leftItems.length === 0}>
             {saving ? (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
             ) : null}

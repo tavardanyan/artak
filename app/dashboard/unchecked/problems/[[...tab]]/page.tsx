@@ -1,15 +1,15 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, TruckIcon, PackagePlus, Trash2 } from "lucide-react"
+import { Loader2, TruckIcon, PackagePlus } from "lucide-react"
 import { InvoiceDetailDrawer } from "@/components/invoice-detail-drawer"
-import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
 import { createTransferFromInvoice } from "@/lib/invoice-transfer-handler"
 
 interface ProblemInvoice {
@@ -27,33 +27,32 @@ interface ProblemInvoice {
   total: number | null
 }
 
-interface ProblemTransfer {
-  id: number
-  created_at: string
-  invoice_id: string | null
-  from_warehouse_name: string | null
-  to_warehouse_name: string | null
-  invoice_serial_no: string | null
-}
-
 const ROW_LIMIT = 200
+const TAB_VALUES = ["no-transfer", "no-items"] as const
+type TabValue = (typeof TAB_VALUES)[number]
 
 export default function ProblemsPage() {
+  const params = useParams<{ tab?: string[] }>()
+  const router = useRouter()
   const [invoicesNoTransfer, setInvoicesNoTransfer] = useState<ProblemInvoice[]>([])
   const [invoicesNoItems, setInvoicesNoItems] = useState<ProblemInvoice[]>([])
-  const [transfersNoItems, setTransfersNoItems] = useState<ProblemTransfer[]>([])
   const [loading, setLoading] = useState(true)
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [selNoTransfer, setSelNoTransfer] = useState<Set<string>>(new Set())
   const [selNoItems, setSelNoItems] = useState<Set<string>>(new Set())
-  const [selEmptyTransfers, setSelEmptyTransfers] = useState<Set<number>>(new Set())
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
   const [isInvoiceDrawerOpen, setIsInvoiceDrawerOpen] = useState(false)
-  const [selectedTransferId, setSelectedTransferId] = useState<number | null>(null)
-  const [isTransferDrawerOpen, setIsTransferDrawerOpen] = useState(false)
 
   const { toast } = useToast()
   const supabase = createClient()
+
+  const activeTab: TabValue = TAB_VALUES.includes(params.tab?.[0] as TabValue)
+    ? (params.tab![0] as TabValue)
+    : "no-transfer"
+
+  const handleTabChange = (value: string) => {
+    router.replace(`/dashboard/unchecked/problems/${value}`)
+  }
 
   useEffect(() => {
     fetchProblems()
@@ -62,7 +61,7 @@ export default function ProblemsPage() {
   const fetchProblems = async () => {
     setLoading(true)
     try {
-      const [noTransfer, noItems, emptyTransfers] = await Promise.all([
+      const [noTransfer, noItems] = await Promise.all([
         supabase
           .from("problem_invoice_no_transfer")
           .select("*")
@@ -73,23 +72,15 @@ export default function ProblemsPage() {
           .select("*")
           .order("issued_at", { ascending: false, nullsFirst: false })
           .limit(ROW_LIMIT),
-        supabase
-          .from("problem_transfer_no_items")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(ROW_LIMIT),
       ])
 
       if (noTransfer.error) throw noTransfer.error
       if (noItems.error) throw noItems.error
-      if (emptyTransfers.error) throw emptyTransfers.error
 
       setInvoicesNoTransfer((noTransfer.data || []) as ProblemInvoice[])
       setInvoicesNoItems((noItems.data || []) as ProblemInvoice[])
-      setTransfersNoItems((emptyTransfers.data || []) as ProblemTransfer[])
       setSelNoTransfer(new Set())
       setSelNoItems(new Set())
-      setSelEmptyTransfers(new Set())
     } catch (error: any) {
       console.error("Error:", error)
       toast({ title: "Սխալ", description: error?.message, variant: "destructive" })
@@ -98,34 +89,24 @@ export default function ProblemsPage() {
     }
   }
 
-  const toggleIn = <T,>(set: Set<T>, id: T): Set<T> => {
+  const toggleIn = (set: Set<string>, id: string): Set<string> => {
     const next = new Set(set)
     if (next.has(id)) next.delete(id)
     else next.add(id)
     return next
   }
 
-  const toggleAll = <T,>(set: Set<T>, allIds: T[]): Set<T> =>
-    set.size === allIds.length ? new Set<T>() : new Set(allIds)
+  const toggleAll = (set: Set<string>, allIds: string[]): Set<string> =>
+    set.size === allIds.length ? new Set<string>() : new Set(allIds)
 
   const handleInvoiceClick = (invoice: ProblemInvoice) => {
     setSelectedInvoiceId(invoice.id)
     setIsInvoiceDrawerOpen(true)
   }
 
-  const handleTransferClick = (transfer: ProblemTransfer) => {
-    setSelectedTransferId(transfer.id)
-    setIsTransferDrawerOpen(true)
-  }
-
-  // A drawer action (create transfer, delete, split) may have resolved the row
+  // A drawer action (create transfer, delete) may have resolved the row
   const handleInvoiceDrawerChange = (open: boolean) => {
     setIsInvoiceDrawerOpen(open)
-    if (!open) fetchProblems()
-  }
-
-  const handleTransferDrawerChange = (open: boolean) => {
-    setIsTransferDrawerOpen(open)
     if (!open) fetchProblems()
   }
 
@@ -184,24 +165,6 @@ export default function ProblemsPage() {
         ].filter(Boolean).join(", ") || undefined,
         variant: errors > 0 ? "destructive" : undefined,
       })
-    } catch (error: any) {
-      console.error("Error:", error)
-      toast({ title: "Սխալ", description: error?.message, variant: "destructive" })
-    } finally {
-      setBulkProcessing(false)
-      fetchProblems()
-    }
-  }
-
-  const handleBulkDeleteTransfers = async () => {
-    const ids = Array.from(selEmptyTransfers)
-    if (ids.length === 0) return
-    if (!window.confirm(`Ջնջե՞լ ${ids.length} դատարկ տեղափոխում`)) return
-    setBulkProcessing(true)
-    try {
-      const { error } = await supabase.from("transfer").delete().in("id", ids)
-      if (error) throw error
-      toast({ title: "Հաջողություն", description: `Ջնջվեց ${ids.length} տեղափոխում` })
     } catch (error: any) {
       console.error("Error:", error)
       toast({ title: "Սխալ", description: error?.message, variant: "destructive" })
@@ -281,7 +244,7 @@ export default function ProblemsPage() {
       <div>
         <h2 className="text-2xl font-bold tracking-tight">Խնդրահարույց գրառումներ</h2>
         <p className="text-sm text-muted-foreground">
-          Ապրանքագրեր առանց տեղափոխման կամ ապրանքների և դատարկ տեղափոխումներ
+          Ապրանքագրեր առանց տեղափոխման կամ ապրանքների
         </p>
       </div>
 
@@ -290,16 +253,13 @@ export default function ProblemsPage() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <Tabs defaultValue="no-transfer">
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList>
             <TabsTrigger value="no-transfer">
               Առանց տեղափոխման ({invoicesNoTransfer.length})
             </TabsTrigger>
             <TabsTrigger value="no-items">
               Առանց ապրանքների ({invoicesNoItems.length})
-            </TabsTrigger>
-            <TabsTrigger value="empty-transfers">
-              Դատարկ տեղափոխումներ ({transfersNoItems.length})
             </TabsTrigger>
           </TabsList>
 
@@ -338,59 +298,6 @@ export default function ProblemsPage() {
               </CardContent>
             </Card>
           </TabsContent>
-
-          <TabsContent value="empty-transfers">
-            <Card>
-              <CardContent className="pt-4">
-                <p className="text-xs text-muted-foreground pb-3">
-                  Դատարկ տեղափոխումներ․ ստուգեք և լրացրեք կամ ջնջեք
-                </p>
-                {bulkBar(
-                  selEmptyTransfers.size,
-                  <Button size="sm" variant="destructive" className="h-7 text-xs" disabled={selEmptyTransfers.size === 0 || bulkProcessing} onClick={handleBulkDeleteTransfers}>
-                    {bulkProcessing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Trash2 className="h-3 w-3 mr-1" />}
-                    Ջնջել ({selEmptyTransfers.size})
-                  </Button>
-                )}
-                {transfersNoItems.length === 0 ? (
-                  <div className="text-center py-8 text-sm text-muted-foreground">Դատարկ տեղափոխումներ չկան</div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="text-xs">
-                        <TableHead className="w-8 py-2">
-                          {rowCheckbox(selEmptyTransfers.size === transfersNoItems.length && transfersNoItems.length > 0, () =>
-                            setSelEmptyTransfers(toggleAll(selEmptyTransfers, transfersNoItems.map((t) => t.id)))
-                          )}
-                        </TableHead>
-                        <TableHead className="w-[10%] py-2">№</TableHead>
-                        <TableHead className="w-[15%] py-2">Ա/թ</TableHead>
-                        <TableHead className="w-[28%] py-2">Որտեղից</TableHead>
-                        <TableHead className="w-[28%] py-2">Ուր</TableHead>
-                        <TableHead className="w-[15%] py-2">Ապրանքագիր</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transfersNoItems.map((transfer) => (
-                        <TableRow key={transfer.id} className="text-xs cursor-pointer hover:bg-accent" onClick={() => handleTransferClick(transfer)}>
-                          <TableCell className="py-2" onClick={(e) => e.stopPropagation()}>
-                            {rowCheckbox(selEmptyTransfers.has(transfer.id), () =>
-                              setSelEmptyTransfers(toggleIn(selEmptyTransfers, transfer.id))
-                            )}
-                          </TableCell>
-                          <TableCell className="font-medium py-2">#{transfer.id}</TableCell>
-                          <TableCell className="py-2">{formatDate(transfer.created_at)}</TableCell>
-                          <TableCell className="py-2">{transfer.from_warehouse_name || "-"}</TableCell>
-                          <TableCell className="py-2">{transfer.to_warehouse_name || "-"}</TableCell>
-                          <TableCell className="py-2 text-muted-foreground">{transfer.invoice_serial_no || "-"}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
       )}
 
@@ -401,12 +308,6 @@ export default function ProblemsPage() {
           invoiceId={selectedInvoiceId}
         />
       )}
-
-      <TransferDetailDrawer
-        open={isTransferDrawerOpen}
-        onOpenChange={handleTransferDrawerChange}
-        transferId={selectedTransferId}
-      />
     </div>
   )
 }
