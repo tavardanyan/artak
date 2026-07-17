@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, Check } from "lucide-react"
+import { Loader2, Check, ArrowUp, ArrowDown } from "lucide-react"
 import { InvoiceDetailDrawer } from "@/components/invoice-detail-drawer"
 import { LabelCell } from "@/components/label-cell"
 import { LabelFilter } from "@/components/label-filter"
@@ -44,6 +44,7 @@ export default function UncheckedTransfersPage() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
   const [isInvoiceDrawerOpen, setIsInvoiceDrawerOpen] = useState(false)
   const [labelFilter, setLabelFilter] = useState<number | null>(null)
+  const [sortAsc, setSortAsc] = useState(false)
 
   const { toast } = useToast()
   const supabase = createClient()
@@ -55,7 +56,12 @@ export default function UncheckedTransfersPage() {
 
   useEffect(() => {
     if (defaultWarehouse !== null) fetchTransfers()
-  }, [currentPage, defaultWarehouse])
+  }, [currentPage, defaultWarehouse, sortAsc])
+
+  const toggleSort = () => {
+    setSortAsc((prev) => !prev)
+    setCurrentPage(1)
+  }
 
   const fetchDefaultWarehouse = async () => {
     const { data } = await supabase.from("settings").select("value").eq("key", "default_transfer_warehouse").single()
@@ -87,7 +93,8 @@ export default function UncheckedTransfersPage() {
           transfer_item(qty, unit_price, unit_vat)
         `)
         .eq("to", wid)
-        .order("created_at", { ascending: false })
+        .order("invoice(issued_at)", { ascending: sortAsc, nullsFirst: false })
+        .order("created_at", { ascending: sortAsc })
         .range((currentPage - 1) * TRANSFERS_PER_PAGE, currentPage * TRANSFERS_PER_PAGE - 1)
 
       if (error) throw error
@@ -167,7 +174,12 @@ export default function UncheckedTransfersPage() {
                 <TableHeader>
                   <TableRow className="text-xs">
                     <TableHead className="w-[40px] py-2"></TableHead>
-                    <TableHead className="w-[12%] py-2">Թողարկման ամսաթիվ</TableHead>
+                    <TableHead className="w-[12%] py-2">
+                      <button type="button" className="flex items-center gap-1 hover:text-foreground" onClick={toggleSort}>
+                        Թողարկման ամսաթիվ
+                        {sortAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                      </button>
+                    </TableHead>
                     <TableHead className="w-[20%] py-2">Որտեղից</TableHead>
                     <TableHead className="w-[22%] py-2">Հասցե</TableHead>
                     <TableHead className="w-[14%] py-2 text-right">Ընդամենը</TableHead>

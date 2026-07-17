@@ -153,20 +153,21 @@ export function AppSidebar() {
       .maybeSingle()
     const defaultWarehouseId = wSetting?.value ? Number(wSetting.value) : 1
 
-    const [items, invoices, transfers, draftTransfers, invNoTransfer, invNoItems] = await Promise.all([
+    const [items, invoices, transfers, draftTransfers, invNoTransfer, invNoItems, trMismatch] = await Promise.all([
       supabase.from("item").select("*", { count: "exact", head: true }).is("parent", null).or("seen.is.null,seen.eq.false"),
       supabase.from("invoice").select("*", { count: "exact", head: true }).eq("seen", false),
       supabase.from("transfer").select("*", { count: "exact", head: true }).eq("to", defaultWarehouseId),
       supabase.from("transfer").select("*", { count: "exact", head: true }).is("delivered_at", null).is("acepted_at", null).is("rejected_at", null),
       supabase.from("problem_invoice_no_transfer").select("*", { count: "exact", head: true }),
       supabase.from("problem_invoice_no_items").select("*", { count: "exact", head: true }),
+      supabase.from("problem_transfer_mismatch").select("*", { count: "exact", head: true }),
     ])
     setUncheckedCounts({
       items: items.count || 0,
       invoices: invoices.count || 0,
       transfers: transfers.count || 0,
       draftTransfers: draftTransfers.count || 0,
-      problems: (invNoTransfer.count || 0) + (invNoItems.count || 0),
+      problems: (invNoTransfer.count || 0) + (invNoItems.count || 0) + (trMismatch.count || 0),
     })
   }
 

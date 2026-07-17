@@ -12,6 +12,8 @@ where i.cancelled_at is null
   and i.type in ('GOODS', 'ACC_DOC_GOODS')
   and p.warehouse_id is not null
   and i.buyer_tin = (select value->>'tin' from settings where key = 'tax_service')
+  -- invoices with no items are surfaced in their own list, not here
+  and exists (select 1 from invoice_items ii where ii.invoice_id = i.id)
   and not exists (select 1 from transfer t where t.invoice_id = i.id);
 
 create or replace view problem_invoice_no_items with (security_invoker = on) as

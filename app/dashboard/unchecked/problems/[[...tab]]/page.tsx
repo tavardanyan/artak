@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, TruckIcon, PackagePlus } from "lucide-react"
+import { Loader2, TruckIcon, PackagePlus, RefreshCw } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { InvoiceDetailDrawer } from "@/components/invoice-detail-drawer"
-import { createTransferFromInvoice } from "@/lib/invoice-transfer-handler"
+import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
+import { createTransferFromInvoice, rebuildTransferItemsFromInvoice } from "@/lib/invoice-transfer-handler"
 
 interface ProblemInvoice {
   id: string
@@ -27,8 +29,24 @@ interface ProblemInvoice {
   total: number | null
 }
 
+interface MismatchRow {
+  transfer_id: number
+  transfer_created_at: string | null
+  invoice_id: string
+  serial_no: string | null
+  issued_at: string | null
+  delivered_at: string | null
+  supplier_name: string | null
+  invoice_total: number | null
+  transfer_total: number | null
+  diff: number | null
+  total_mismatch: boolean
+  items_mismatch: boolean
+  mismatched_lines: number
+}
+
 const ROW_LIMIT = 200
-const TAB_VALUES = ["no-transfer", "no-items"] as const
+const TAB_VALUES = ["no-transfer", "no-items", "mismatch"] as const
 type TabValue = (typeof TAB_VALUES)[number]
 
 export default function ProblemsPage() {
@@ -36,12 +54,16 @@ export default function ProblemsPage() {
   const router = useRouter()
   const [invoicesNoTransfer, setInvoicesNoTransfer] = useState<ProblemInvoice[]>([])
   const [invoicesNoItems, setInvoicesNoItems] = useState<ProblemInvoice[]>([])
+  const [mismatches, setMismatches] = useState<MismatchRow[]>([])
   const [loading, setLoading] = useState(true)
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [selNoTransfer, setSelNoTransfer] = useState<Set<string>>(new Set())
   const [selNoItems, setSelNoItems] = useState<Set<string>>(new Set())
+  const [selMismatch, setSelMismatch] = useState<Set<number>>(new Set())
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
   const [isInvoiceDrawerOpen, setIsInvoiceDrawerOpen] = useState(false)
+  const [selectedTransferId, setSelectedTransferId] = useState<number | null>(null)
+  const [isTransferDrawerOpen, setIsTransferDrawerOpen] = useState(false)
 
   const { toast } = useToast()
   const supabase = createClient()
@@ -61,7 +83,7 @@ export default function ProblemsPage() {
   const fetchProblems = async () => {
     setLoading(true)
     try {
-      const [noTransfer, noItems] = await Promise.all([
+      const [noTransfer, noItems, mismatch] = await Promise.all([
         supabase
           .from("problem_invoice_no_transfer")
           .select("*")
@@ -72,15 +94,23 @@ export default function ProblemsPage() {
           .select("*")
           .order("issued_at", { ascending: false, nullsFirst: false })
           .limit(ROW_LIMIT),
+        supabase
+          .from("problem_transfer_mismatch")
+          .select("*")
+          .order("issued_at", { ascending: false, nullsFirst: false })
+          .limit(ROW_LIMIT),
       ])
 
       if (noTransfer.error) throw noTransfer.error
       if (noItems.error) throw noItems.error
+      if (mismatch.error) throw mismatch.error
 
       setInvoicesNoTransfer((noTransfer.data || []) as ProblemInvoice[])
       setInvoicesNoItems((noItems.data || []) as ProblemInvoice[])
+      setMismatches((mismatch.data || []) as MismatchRow[])
       setSelNoTransfer(new Set())
       setSelNoItems(new Set())
+      setSelMismatch(new Set())
     } catch (error: any) {
       console.error("Error:", error)
       toast({ title: "Սխալ", description: error?.message, variant: "destructive" })
@@ -89,15 +119,15 @@ export default function ProblemsPage() {
     }
   }
 
-  const toggleIn = (set: Set<string>, id: string): Set<string> => {
+  const toggleIn = <T,>(set: Set<T>, id: T): Set<T> => {
     const next = new Set(set)
     if (next.has(id)) next.delete(id)
     else next.add(id)
     return next
   }
 
-  const toggleAll = (set: Set<string>, allIds: string[]): Set<string> =>
-    set.size === allIds.length ? new Set<string>() : new Set(allIds)
+  const toggleAll = <T,>(set: Set<T>, allIds: T[]): Set<T> =>
+    set.size === allIds.length ? new Set<T>() : new Set(allIds)
 
   const handleInvoiceClick = (invoice: ProblemInvoice) => {
     setSelectedInvoiceId(invoice.id)
@@ -107,6 +137,11 @@ export default function ProblemsPage() {
   // A drawer action (create transfer, delete) may have resolved the row
   const handleInvoiceDrawerChange = (open: boolean) => {
     setIsInvoiceDrawerOpen(open)
+    if (!open) fetchProblems()
+  }
+
+  const handleTransferDrawerChange = (open: boolean) => {
+    setIsTransferDrawerOpen(open)
     if (!open) fetchProblems()
   }
 
@@ -168,6 +203,29 @@ export default function ProblemsPage() {
     } catch (error: any) {
       console.error("Error:", error)
       toast({ title: "Սխալ", description: error?.message, variant: "destructive" })
+    } finally {
+      setBulkProcessing(false)
+      fetchProblems()
+    }
+  }
+
+  const handleBulkRebuildTransfers = async () => {
+    const ids = Array.from(selMismatch)
+    if (ids.length === 0) return
+    setBulkProcessing(true)
+    let rebuilt = 0
+    const failed: string[] = []
+    try {
+      for (const transferId of ids) {
+        const { rebuilt: ok, errors } = await rebuildTransferItemsFromInvoice(supabase, transferId)
+        if (ok) rebuilt++
+        else failed.push(`#${transferId}: ${errors[0] || "անհայտ սխալ"}`)
+      }
+      toast({
+        title: `Վերակառուցվեց ${rebuilt} տեղափոխում`,
+        description: failed.length > 0 ? `Չհաջողվեց ${failed.length}՝ ${failed[0]}` : undefined,
+        variant: failed.length > 0 ? "destructive" : undefined,
+      })
     } finally {
       setBulkProcessing(false)
       fetchProblems()
@@ -261,6 +319,9 @@ export default function ProblemsPage() {
             <TabsTrigger value="no-items">
               Առանց ապրանքների ({invoicesNoItems.length})
             </TabsTrigger>
+            <TabsTrigger value="mismatch">
+              Անհամապատասխան ({mismatches.length})
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="no-transfer">
@@ -298,6 +359,81 @@ export default function ProblemsPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="mismatch">
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-muted-foreground pb-3">
+                  Տեղափոխումներ, որոնց գումարը կամ ապրանքները չեն համընկնում ապրանքագրի հետ (ձեռքով բաժանվածները հաշվի չեն առնվում)
+                </p>
+                {bulkBar(
+                  selMismatch.size,
+                  <Button size="sm" className="h-7 text-xs" disabled={selMismatch.size === 0 || bulkProcessing} onClick={handleBulkRebuildTransfers}>
+                    {bulkProcessing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                    Վերակառուցել ապրանքագրից ({selMismatch.size})
+                  </Button>
+                )}
+                {mismatches.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-muted-foreground">Անհամապատասխանություններ չկան</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="text-xs">
+                        <TableHead className="w-8 py-2">
+                          {rowCheckbox(selMismatch.size === mismatches.length && mismatches.length > 0, () =>
+                            setSelMismatch(toggleAll(selMismatch, mismatches.map((m) => m.transfer_id)))
+                          )}
+                        </TableHead>
+                        <TableHead className="w-[16%] py-2">Համար</TableHead>
+                        <TableHead className="w-[12%] py-2">Ա/թ</TableHead>
+                        <TableHead className="w-[26%] py-2">Մատակարար</TableHead>
+                        <TableHead className="w-[13%] py-2 text-right">Ապրանքագիր</TableHead>
+                        <TableHead className="w-[13%] py-2 text-right">Տեղափոխում</TableHead>
+                        <TableHead className="w-[10%] py-2 text-right">Տարբերություն</TableHead>
+                        <TableHead className="w-[10%] py-2">Խնդիր</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {mismatches.map((row) => (
+                        <TableRow
+                          key={row.transfer_id}
+                          className="text-xs cursor-pointer hover:bg-accent"
+                          onClick={() => {
+                            setSelectedTransferId(row.transfer_id)
+                            setIsTransferDrawerOpen(true)
+                          }}
+                        >
+                          <TableCell className="py-2" onClick={(e) => e.stopPropagation()}>
+                            {rowCheckbox(selMismatch.has(row.transfer_id), () =>
+                              setSelMismatch(toggleIn(selMismatch, row.transfer_id))
+                            )}
+                          </TableCell>
+                          <TableCell className="font-medium py-2">{row.serial_no || row.invoice_id.substring(0, 8)}</TableCell>
+                          <TableCell className="py-2">{formatDate(row.delivered_at || row.issued_at || row.transfer_created_at)}</TableCell>
+                          <TableCell className="py-2">{row.supplier_name || "-"}</TableCell>
+                          <TableCell className="py-2 text-right">
+                            {row.invoice_total != null ? `${row.invoice_total.toLocaleString()} ֏` : "-"}
+                          </TableCell>
+                          <TableCell className="py-2 text-right">
+                            {row.transfer_total != null ? `${row.transfer_total.toLocaleString()} ֏` : "-"}
+                          </TableCell>
+                          <TableCell className={`py-2 text-right font-medium ${(row.diff || 0) > 1 ? "text-destructive" : (row.diff || 0) < -1 ? "text-amber-600" : ""}`}>
+                            {row.diff != null ? `${row.diff > 0 ? "+" : ""}${row.diff.toLocaleString()} ֏` : "-"}
+                          </TableCell>
+                          <TableCell className="py-2">
+                            <div className="flex gap-1">
+                              {row.total_mismatch && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Գումար</Badge>}
+                              {row.items_mismatch && <Badge variant="outline" className="text-[10px] px-1.5 py-0">Ապրանքներ ({row.mismatched_lines})</Badge>}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       )}
 
@@ -308,6 +444,12 @@ export default function ProblemsPage() {
           invoiceId={selectedInvoiceId}
         />
       )}
+
+      <TransferDetailDrawer
+        open={isTransferDrawerOpen}
+        onOpenChange={handleTransferDrawerChange}
+        transferId={selectedTransferId}
+      />
     </div>
   )
 }

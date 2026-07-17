@@ -253,6 +253,105 @@ export async function matchAndLinkInvoiceItems(
 }
 
 /**
+ * Rebuild a transfer's items from its invoice lines (delete + recreate).
+ * The transfer row itself (warehouses, status, label, transaction) is preserved.
+ */
+export async function rebuildTransferItemsFromInvoice(
+  supabase: SupabaseClient,
+  transferId: number
+): Promise<{ rebuilt: boolean; errors: string[] }> {
+  const errors: string[] = []
+  try {
+    const { data: transfer, error: tErr } = await supabase
+      .from("transfer")
+      .select("id, invoice_id")
+      .eq("id", transferId)
+      .single()
+
+    if (tErr || !transfer?.invoice_id) {
+      errors.push(tErr?.message || "Transfer has no linked invoice")
+      return { rebuilt: false, errors }
+    }
+
+    const matchResult = await matchAndLinkInvoiceItems(supabase, transfer.invoice_id)
+    errors.push(...matchResult.errors)
+
+    const { data: invoiceItems, error: fetchError } = await supabase
+      .from("invoice_items")
+      .select("*")
+      .eq("invoice_id", transfer.invoice_id)
+      .not("item_id", "is", null)
+
+    if (fetchError) {
+      errors.push(fetchError.message)
+      return { rebuilt: false, errors }
+    }
+    if (!invoiceItems || invoiceItems.length === 0) {
+      errors.push("No linked invoice items — transfer left unchanged")
+      return { rebuilt: false, errors }
+    }
+
+    // Transfers carry the parent item when one exists
+    const itemIds = Array.from(new Set(invoiceItems.map((ii) => ii.item_id as number)))
+    const { data: itemRows } = await supabase.from("item").select("id, parent").in("id", itemIds)
+    const parentOf = new Map<number, number | null>((itemRows || []).map((r) => [r.id, r.parent]))
+
+    // Merge lines per final item — qty sums, prices derive from the invoice's
+    // declared net (total_value) and VAT, same as createTransferFromInvoice
+    const merged = new Map<number, { qty: number; total_value: number; total_vat: number }>()
+    for (const ii of invoiceItems) {
+      const finalId = parentOf.get(ii.item_id) || ii.item_id
+      const qty = ii.quantity || 0
+      const value = ii.total_value ?? qty * (ii.unit_price || 0)
+      const vat = ii.vat_amount || 0
+      const cur = merged.get(finalId)
+      if (cur) {
+        cur.qty += qty
+        cur.total_value += value
+        cur.total_vat += vat
+      } else {
+        merged.set(finalId, { qty, total_value: value, total_vat: vat })
+      }
+    }
+
+    const newItems = Array.from(merged.entries()).map(([itemId, agg]) => ({
+      transfer_id: transferId,
+      item_id: itemId,
+      qty: agg.qty,
+      unit_price: agg.qty > 0 ? agg.total_value / agg.qty : 0,
+      unit_vat: agg.qty > 0 ? agg.total_vat / agg.qty : 0,
+    }))
+
+    // Snapshot old items so a failed insert can be restored — a transfer must
+    // never be left without items
+    const { data: oldItems } = await supabase
+      .from("transfer_item")
+      .select("transfer_id, item_id, qty, unit_price, unit_vat")
+      .eq("transfer_id", transferId)
+
+    const { error: delErr } = await supabase.from("transfer_item").delete().eq("transfer_id", transferId)
+    if (delErr) {
+      errors.push(delErr.message)
+      return { rebuilt: false, errors }
+    }
+
+    const { error: insErr } = await supabase.from("transfer_item").insert(newItems)
+    if (insErr) {
+      errors.push(insErr.message)
+      if (oldItems && oldItems.length > 0) {
+        await supabase.from("transfer_item").insert(oldItems)
+      }
+      return { rebuilt: false, errors }
+    }
+
+    return { rebuilt: true, errors }
+  } catch (err: any) {
+    errors.push(err?.message || String(err))
+    return { rebuilt: false, errors }
+  }
+}
+
+/**
  * Create a transfer from invoice items
  * Requires partner warehouse as source and uses destination warehouse from settings
  */
