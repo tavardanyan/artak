@@ -136,7 +136,7 @@ export function AppSidebar() {
   const [isTransactionDetailOpen, setIsTransactionDetailOpen] = React.useState(false)
   const [isProjectDrawerOpen, setIsProjectDrawerOpen] = React.useState(false)
   const [activeProjects, setActiveProjects] = React.useState<Project[]>([])
-  const [uncheckedCounts, setUncheckedCounts] = React.useState({ items: 0, invoices: 0, transfers: 0, draftTransfers: 0 })
+  const [uncheckedCounts, setUncheckedCounts] = React.useState({ items: 0, invoices: 0, transfers: 0, draftTransfers: 0, problems: 0 })
 
   React.useEffect(() => {
     fetchActiveProjects()
@@ -153,17 +153,21 @@ export function AppSidebar() {
       .maybeSingle()
     const defaultWarehouseId = wSetting?.value ? Number(wSetting.value) : 1
 
-    const [items, invoices, transfers, draftTransfers] = await Promise.all([
+    const [items, invoices, transfers, draftTransfers, invNoTransfer, invNoItems, trNoItems] = await Promise.all([
       supabase.from("item").select("*", { count: "exact", head: true }).is("parent", null).or("seen.is.null,seen.eq.false"),
       supabase.from("invoice").select("*", { count: "exact", head: true }).eq("seen", false),
       supabase.from("transfer").select("*", { count: "exact", head: true }).eq("to", defaultWarehouseId),
       supabase.from("transfer").select("*", { count: "exact", head: true }).is("delivered_at", null).is("acepted_at", null).is("rejected_at", null),
+      supabase.from("problem_invoice_no_transfer").select("*", { count: "exact", head: true }),
+      supabase.from("problem_invoice_no_items").select("*", { count: "exact", head: true }),
+      supabase.from("problem_transfer_no_items").select("*", { count: "exact", head: true }),
     ])
     setUncheckedCounts({
       items: items.count || 0,
       invoices: invoices.count || 0,
       transfers: transfers.count || 0,
       draftTransfers: draftTransfers.count || 0,
+      problems: (invNoTransfer.count || 0) + (invNoItems.count || 0) + (trNoItems.count || 0),
     })
   }
 
@@ -305,6 +309,15 @@ export function AppSidebar() {
                     <PackageCheck />
                     <span>Տեղափոխումներ</span>
                     {uncheckedCounts.draftTransfers > 0 && <span className="ml-auto text-xs text-muted-foreground">{uncheckedCounts.draftTransfers}</span>}
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/dashboard/unchecked/problems"}>
+                  <a href="/dashboard/unchecked/problems">
+                    <AlertCircle />
+                    <span>Խնդրահարույց</span>
+                    {uncheckedCounts.problems > 0 && <span className="ml-auto text-xs text-muted-foreground">{uncheckedCounts.problems}</span>}
                   </a>
                 </SidebarMenuButton>
               </SidebarMenuItem>

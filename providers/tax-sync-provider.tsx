@@ -130,6 +130,10 @@ export function TaxSyncProvider({ children }: { children: ReactNode }) {
       setSyncing(true)
       const res = await fetch("/api/sync-invoices", { method: "POST" })
       const json = await res.json().catch(() => ({}))
+      if (res.status === 409) {
+        console.log("[GlobalAutoSync] Skipped — another sync is already running")
+        return
+      }
       if (!res.ok) {
         console.error("[GlobalAutoSync] Sync failed:", json?.error || res.statusText)
         return
