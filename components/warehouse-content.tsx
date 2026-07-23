@@ -172,6 +172,11 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [destWhTab, setDestWhTab] = useState<"internal" | "partners" | "suppliers">("internal")
   const [loading, setLoading] = useState(true)
   const [transferLabelFilter, setTransferLabelFilter] = useState<number | null>(null)
+  const [transferSearch, setTransferSearch] = useState("")
+  const [transferDirection, setTransferDirection] = useState<"all" | "in" | "out">("all")
+  const [transferStatus, setTransferStatus] = useState<"all" | "draft" | "ongoing" | "accepted" | "rejected">("all")
+  const [transferDateFrom, setTransferDateFrom] = useState("")
+  const [transferDateTo, setTransferDateTo] = useState("")
   const [itemLabelFilter, setItemLabelFilter] = useState<number | null>(null)
   const [itemSearchQuery, setItemSearchQuery] = useState("")
 
@@ -341,9 +346,43 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
     }
   }
 
-  const visibleTransfers = transferLabelFilter == null
-    ? transfers
-    : transfers.filter((t) => (t.label ?? 0) === transferLabelFilter)
+  const transferStatusOf = (t: Transfer): "rejected" | "accepted" | "ongoing" | "draft" =>
+    t.rejected_at ? "rejected" : t.acepted_at ? "accepted" : t.delivered_at ? "ongoing" : "draft"
+
+  const transferFiltersActive =
+    transferSearch.trim() !== "" || transferDirection !== "all" || transferStatus !== "all" ||
+    transferDateFrom !== "" || transferDateTo !== ""
+
+  const clearTransferFilters = () => {
+    setTransferSearch("")
+    setTransferDirection("all")
+    setTransferStatus("all")
+    setTransferDateFrom("")
+    setTransferDateTo("")
+  }
+
+  const visibleTransfers = transfers.filter((t) => {
+    if (transferLabelFilter != null && (t.label ?? 0) !== transferLabelFilter) return false
+    if (transferDirection === "out" && t.from !== warehouseId) return false
+    if (transferDirection === "in" && t.to !== warehouseId) return false
+    if (transferStatus !== "all" && transferStatusOf(t) !== transferStatus) return false
+    if (transferDateFrom && new Date(t.created_at) < new Date(transferDateFrom)) return false
+    // The "to" date is inclusive — compare against the start of the next day
+    if (transferDateTo && new Date(t.created_at) >= new Date(new Date(transferDateTo).getTime() + 86400000)) return false
+    const q = transferSearch.trim().toLowerCase()
+    if (q) {
+      const counterparty = (t.from === warehouseId ? t.to_warehouse?.name : t.from_warehouse?.name) || ""
+      const haystack = [
+        `#${t.id}`,
+        counterparty,
+        t.invoice?.serial_no || "",
+        t.invoice?.partner?.name || "",
+        t.invoice?.destination_address || "",
+      ].join(" ").toLowerCase()
+      if (!haystack.includes(q)) return false
+    }
+    return true
+  })
   const visibleWarehouseItems = (itemLabelFilter == null
     ? warehouseItems
     : warehouseItems.filter((wi) => (wi.item?.label ?? 0) === itemLabelFilter)
@@ -1007,6 +1046,57 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
               </div>
             </CardHeader>
             <CardContent>
+              <div className="flex flex-wrap items-center gap-2 pb-4">
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={transferSearch}
+                    onChange={(e) => setTransferSearch(e.target.value)}
+                    placeholder="Որոնել՝ պահեստ, ապրանքագիր, հասցե..."
+                    className="h-8 w-[240px] pl-8"
+                  />
+                </div>
+                <Select value={transferDirection} onValueChange={(v) => setTransferDirection(v as typeof transferDirection)}>
+                  <SelectTrigger className="h-8 w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Բոլոր ուղղ.</SelectItem>
+                    <SelectItem value="in">Մուտք</SelectItem>
+                    <SelectItem value="out">Ելք</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={transferStatus} onValueChange={(v) => setTransferStatus(v as typeof transferStatus)}>
+                  <SelectTrigger className="h-8 w-[150px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Բոլոր վիճակները</SelectItem>
+                    <SelectItem value="draft">Սևագիր</SelectItem>
+                    <SelectItem value="ongoing">Ընթացիկ</SelectItem>
+                    <SelectItem value="accepted">Ընդունված</SelectItem>
+                    <SelectItem value="rejected">Մերժված</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="date"
+                  value={transferDateFrom}
+                  onChange={(e) => setTransferDateFrom(e.target.value)}
+                  className="h-8 w-[140px]"
+                />
+                <span className="text-sm text-muted-foreground">–</span>
+                <Input
+                  type="date"
+                  value={transferDateTo}
+                  onChange={(e) => setTransferDateTo(e.target.value)}
+                  className="h-8 w-[140px]"
+                />
+                {transferFiltersActive && (
+                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={clearTransferFilters}>
+                    Մաքրել ({visibleTransfers.length}/{transfers.length})
+                  </Button>
+                )}
+              </div>
               {loading ? (
                 <div className="flex justify-center py-8">
                   <p className="text-muted-foreground">Բեռնում...</p>
@@ -1014,7 +1104,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
               ) : visibleTransfers.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <TruckIcon className="h-12 w-12 text-muted-foreground mb-2 opacity-50" />
-                  <p className="text-muted-foreground">Տեղափոխումներ չկան</p>
+                  <p className="text-muted-foreground">
+                    {transfers.length > 0 ? "Ֆիլտրերին համապատասխան տեղափոխումներ չկան" : "Տեղափոխումներ չկան"}
+                  </p>
                 </div>
               ) : (
                 <Table>
