@@ -261,14 +261,16 @@ export default function ProblemsPage() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json?.error || res.statusText)
-      const results: { status: string }[] = json?.results || []
+      const results: { status: string; source?: string }[] = json?.results || []
       const synced = results.filter((r) => r.status === "synced").length
+      const syncedFromTax = results.filter((r) => r.status === "synced" && r.source === "tax_service").length
       const noItems = results.filter((r) => r.status === "no_items").length
       const errors = results.filter((r) => r.status === "error").length
       toast({
         title: `Լրացվեց ${synced} ապրանքագիր`,
         description: [
-          noItems > 0 ? `${noItems}-ի ապրանքները աղբյուրում նույնպես բացակայում են` : null,
+          syncedFromTax > 0 ? `${syncedFromTax}-ը՝ ուղիղ հարկայինից` : null,
+          noItems > 0 ? `${noItems}-ի ապրանքները ոչ մի աղբյուրում չկան` : null,
           errors > 0 ? `${errors} սխալ` : null,
         ].filter(Boolean).join(", ") || undefined,
         variant: errors > 0 ? "destructive" : undefined,
