@@ -368,6 +368,14 @@ export async function createTransferFromInvoice(
     console.log(`[Transfer] Creating transfer for invoice ${invoiceId}`)
     console.log(`[Transfer] Source warehouse: ${sourceWarehouseId}, Destination: ${destinationWarehouseId}`)
 
+    // The transfer is dated by the invoice's issue date, not by when it was synced
+    const { data: invoiceDates } = await supabase
+      .from("invoice")
+      .select("issued_at, delivered_at")
+      .eq("id", invoiceId)
+      .single()
+    const transferDate = invoiceDates?.issued_at || invoiceDates?.delivered_at || null
+
     // First, match and link invoice items
     const matchResult = await matchAndLinkInvoiceItems(supabase, invoiceId)
     if (matchResult.errors.length > 0) {
@@ -425,6 +433,7 @@ export async function createTransferFromInvoice(
         from: sourceWarehouseId,
         to: destinationWarehouseId,
         invoice_id: invoiceId,
+        ...(transferDate ? { created_at: transferDate } : {}),
       })
       .select("id")
       .single()
