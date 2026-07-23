@@ -7,10 +7,9 @@ select
   i.supplier_tin, i.total_value, i.total_vat_amount, i.total,
   p.name as supplier_name, p.warehouse_id as supplier_warehouse_id
 from invoice i
-join partner p on p.tin = i.supplier_tin
+left join partner p on p.tin = i.supplier_tin
 where i.cancelled_at is null
   and i.type in ('GOODS', 'ACC_DOC_GOODS')
-  and p.warehouse_id is not null
   and i.buyer_tin = (select value->>'tin' from settings where key = 'tax_service')
   -- invoices with no items are surfaced in their own list, not here
   and exists (select 1 from invoice_items ii where ii.invoice_id = i.id)

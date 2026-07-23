@@ -286,7 +286,14 @@ export default function ProblemsPage() {
               </TableCell>
               <TableCell className="font-medium py-2">{invoice.serial_no || invoice.id.substring(0, 8)}</TableCell>
               <TableCell className="py-2">{formatDate(invoice.delivered_at || invoice.issued_at || invoice.created_at)}</TableCell>
-              <TableCell className="py-2">{invoice.supplier_name || invoice.supplier_tin || "-"}</TableCell>
+              <TableCell className="py-2">
+                {invoice.supplier_name || invoice.supplier_tin || "-"}
+                {invoice.supplier_warehouse_id === null && (
+                  <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0 text-amber-600 border-amber-600">
+                    Պահեստ չկա
+                  </Badge>
+                )}
+              </TableCell>
               <TableCell className="py-2 text-right font-medium">
                 {invoice.total != null ? `${invoice.total.toLocaleString()} ֏` : "-"}
               </TableCell>
