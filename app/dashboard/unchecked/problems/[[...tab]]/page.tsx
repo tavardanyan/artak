@@ -8,11 +8,12 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, TruckIcon, PackagePlus, RefreshCw } from "lucide-react"
+import { Loader2, TruckIcon, PackagePlus, RefreshCw, Warehouse } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { InvoiceDetailDrawer } from "@/components/invoice-detail-drawer"
 import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
 import { createTransferFromInvoice, rebuildTransferItemsFromInvoice } from "@/lib/invoice-transfer-handler"
+import { createWarehouseForPartner } from "@/lib/invoice-partner-handler"
 
 interface ProblemInvoice {
   id: string
@@ -45,8 +46,17 @@ interface MismatchRow {
   mismatched_lines: number
 }
 
+interface ProblemPartner {
+  id: number
+  name: string
+  tin: string | null
+  address: string | null
+  invoice_count: number
+  last_invoice_at: string | null
+}
+
 const ROW_LIMIT = 200
-const TAB_VALUES = ["no-transfer", "no-items", "mismatch"] as const
+const TAB_VALUES = ["no-transfer", "no-items", "mismatch", "no-warehouse"] as const
 type TabValue = (typeof TAB_VALUES)[number]
 
 export default function ProblemsPage() {
@@ -55,11 +65,13 @@ export default function ProblemsPage() {
   const [invoicesNoTransfer, setInvoicesNoTransfer] = useState<ProblemInvoice[]>([])
   const [invoicesNoItems, setInvoicesNoItems] = useState<ProblemInvoice[]>([])
   const [mismatches, setMismatches] = useState<MismatchRow[]>([])
+  const [partnersNoWarehouse, setPartnersNoWarehouse] = useState<ProblemPartner[]>([])
   const [loading, setLoading] = useState(true)
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [selNoTransfer, setSelNoTransfer] = useState<Set<string>>(new Set())
   const [selNoItems, setSelNoItems] = useState<Set<string>>(new Set())
   const [selMismatch, setSelMismatch] = useState<Set<number>>(new Set())
+  const [selPartners, setSelPartners] = useState<Set<number>>(new Set())
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
   const [isInvoiceDrawerOpen, setIsInvoiceDrawerOpen] = useState(false)
   const [selectedTransferId, setSelectedTransferId] = useState<number | null>(null)
@@ -83,7 +95,7 @@ export default function ProblemsPage() {
   const fetchProblems = async () => {
     setLoading(true)
     try {
-      const [noTransfer, noItems, mismatch] = await Promise.all([
+      const [noTransfer, noItems, mismatch, noWarehouse] = await Promise.all([
         supabase
           .from("problem_invoice_no_transfer")
           .select("*")
@@ -99,18 +111,26 @@ export default function ProblemsPage() {
           .select("*")
           .order("issued_at", { ascending: false, nullsFirst: false })
           .limit(ROW_LIMIT),
+        supabase
+          .from("problem_partner_no_warehouse")
+          .select("*")
+          .order("last_invoice_at", { ascending: false, nullsFirst: false })
+          .limit(ROW_LIMIT),
       ])
 
       if (noTransfer.error) throw noTransfer.error
       if (noItems.error) throw noItems.error
       if (mismatch.error) throw mismatch.error
+      if (noWarehouse.error) throw noWarehouse.error
 
       setInvoicesNoTransfer((noTransfer.data || []) as ProblemInvoice[])
       setInvoicesNoItems((noItems.data || []) as ProblemInvoice[])
       setMismatches((mismatch.data || []) as MismatchRow[])
+      setPartnersNoWarehouse((noWarehouse.data || []) as ProblemPartner[])
       setSelNoTransfer(new Set())
       setSelNoItems(new Set())
       setSelMismatch(new Set())
+      setSelPartners(new Set())
     } catch (error: any) {
       console.error("Error:", error)
       toast({ title: "Սխալ", description: error?.message, variant: "destructive" })
@@ -150,23 +170,76 @@ export default function ProblemsPage() {
     if (selected.length === 0) return
     setBulkProcessing(true)
     let created = 0
+    let warehousesCreated = 0
     const failed: string[] = []
+    // Several selected invoices may share a supplier — create its warehouse once
+    const warehouseByTin = new Map<string, number>()
     try {
       for (const invoice of selected) {
-        if (!invoice.supplier_warehouse_id) {
-          failed.push(`${invoice.serial_no || invoice.id}: մատակարարը պահեստ չունի`)
+        let warehouseId =
+          invoice.supplier_warehouse_id ??
+          (invoice.supplier_tin ? warehouseByTin.get(invoice.supplier_tin) : undefined) ??
+          null
+
+        if (!warehouseId && invoice.supplier_tin) {
+          const { data: partner } = await supabase
+            .from("partner")
+            .select("id, name, address, warehouse_id")
+            .eq("tin", invoice.supplier_tin)
+            .maybeSingle()
+          if (partner) {
+            if (partner.warehouse_id) {
+              warehouseId = partner.warehouse_id
+            } else {
+              const { warehouseId: newId, error } = await createWarehouseForPartner(supabase, partner)
+              if (newId) {
+                warehouseId = newId
+                warehousesCreated++
+              } else {
+                failed.push(`${invoice.serial_no || invoice.id}: ${error || "պահեստի ստեղծումը ձախողվեց"}`)
+                continue
+              }
+            }
+            if (warehouseId) warehouseByTin.set(invoice.supplier_tin, warehouseId)
+          }
+        }
+
+        if (!warehouseId) {
+          failed.push(`${invoice.serial_no || invoice.id}: մատակարարը գրանցված չէ`)
           continue
         }
-        const { transferId, errors } = await createTransferFromInvoice(
-          supabase,
-          invoice.id,
-          invoice.supplier_warehouse_id
-        )
+        const { transferId, errors } = await createTransferFromInvoice(supabase, invoice.id, warehouseId)
         if (transferId) created++
         else failed.push(`${invoice.serial_no || invoice.id}: ${errors[0] || "անհայտ սխալ"}`)
       }
       toast({
         title: `Ստեղծվեց ${created} տեղափոխում`,
+        description: [
+          warehousesCreated > 0 ? `Ստեղծվեց ${warehousesCreated} պահեստ` : null,
+          failed.length > 0 ? `Չհաջողվեց ${failed.length}՝ ${failed[0]}` : null,
+        ].filter(Boolean).join(", ") || undefined,
+        variant: failed.length > 0 ? "destructive" : undefined,
+      })
+    } finally {
+      setBulkProcessing(false)
+      fetchProblems()
+    }
+  }
+
+  const handleBulkCreateWarehouses = async () => {
+    const selected = partnersNoWarehouse.filter((p) => selPartners.has(p.id))
+    if (selected.length === 0) return
+    setBulkProcessing(true)
+    let created = 0
+    const failed: string[] = []
+    try {
+      for (const partner of selected) {
+        const { warehouseId, error } = await createWarehouseForPartner(supabase, partner)
+        if (warehouseId) created++
+        else failed.push(`${partner.name}: ${error || "անհայտ սխալ"}`)
+      }
+      toast({
+        title: `Ստեղծվեց ${created} պահեստ`,
         description: failed.length > 0 ? `Չհաջողվեց ${failed.length}՝ ${failed[0]}` : undefined,
         variant: failed.length > 0 ? "destructive" : undefined,
       })
@@ -329,6 +402,9 @@ export default function ProblemsPage() {
             <TabsTrigger value="mismatch">
               Անհամապատասխան ({mismatches.length})
             </TabsTrigger>
+            <TabsTrigger value="no-warehouse">
+              Առանց պահեստի ({partnersNoWarehouse.length})
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="no-transfer">
@@ -337,6 +413,20 @@ export default function ProblemsPage() {
                 <p className="text-xs text-muted-foreground pb-3">
                   Գնման ապրանքագրեր, որոնց համար տեղափոխում չի ստեղծվել
                 </p>
+                {invoicesNoTransfer.some((i) => i.supplier_warehouse_id === null) && (
+                  <p className="text-xs text-amber-600 pb-3">
+                    «Պահեստ չկա» նշված տողերի մատակարարները պահեստ չունեն․ տեղափոխում ստեղծելիս
+                    պահեստը կստեղծվի ավտոմատ, կամ նախապես ստեղծեք բոլորը{" "}
+                    <button
+                      type="button"
+                      className="underline font-medium"
+                      onClick={() => handleTabChange("no-warehouse")}
+                    >
+                      «Առանց պահեստի»
+                    </button>{" "}
+                    ներդիրում
+                  </p>
+                )}
                 {bulkBar(
                   selNoTransfer.size,
                   <Button size="sm" className="h-7 text-xs" disabled={selNoTransfer.size === 0 || bulkProcessing} onClick={handleBulkCreateTransfers}>
@@ -433,6 +523,56 @@ export default function ProblemsPage() {
                               {row.items_mismatch && <Badge variant="outline" className="text-[10px] px-1.5 py-0">Ապրանքներ ({row.mismatched_lines})</Badge>}
                             </div>
                           </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="no-warehouse">
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-muted-foreground pb-3">
+                  Մատակարարներ, որոնք ապրանքագրեր ունեն, բայց պահեստ չունեն․ առանց պահեստի տեղափոխում հնարավոր չէ ստեղծել
+                </p>
+                {bulkBar(
+                  selPartners.size,
+                  <Button size="sm" className="h-7 text-xs" disabled={selPartners.size === 0 || bulkProcessing} onClick={handleBulkCreateWarehouses}>
+                    {bulkProcessing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Warehouse className="h-3 w-3 mr-1" />}
+                    Ստեղծել պահեստներ ({selPartners.size})
+                  </Button>
+                )}
+                {partnersNoWarehouse.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-muted-foreground">Բոլոր մատակարարներն ունեն պահեստ</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="text-xs">
+                        <TableHead className="w-8 py-2">
+                          {rowCheckbox(selPartners.size === partnersNoWarehouse.length && partnersNoWarehouse.length > 0, () =>
+                            setSelPartners(toggleAll(selPartners, partnersNoWarehouse.map((p) => p.id)))
+                          )}
+                        </TableHead>
+                        <TableHead className="w-[35%] py-2">Անվանում</TableHead>
+                        <TableHead className="w-[13%] py-2">ՀՎՀՀ</TableHead>
+                        <TableHead className="w-[27%] py-2">Հասցե</TableHead>
+                        <TableHead className="w-[12%] py-2 text-right">Ապրանքագրեր</TableHead>
+                        <TableHead className="w-[13%] py-2">Վերջին Ա/թ</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {partnersNoWarehouse.map((partner) => (
+                        <TableRow key={partner.id} className="text-xs">
+                          <TableCell className="py-2">
+                            {rowCheckbox(selPartners.has(partner.id), () => setSelPartners(toggleIn(selPartners, partner.id)))}
+                          </TableCell>
+                          <TableCell className="font-medium py-2">{partner.name}</TableCell>
+                          <TableCell className="py-2">{partner.tin || "-"}</TableCell>
+                          <TableCell className="py-2 text-muted-foreground">{partner.address || "-"}</TableCell>
+                          <TableCell className="py-2 text-right">{partner.invoice_count}</TableCell>
+                          <TableCell className="py-2">{formatDate(partner.last_invoice_at)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

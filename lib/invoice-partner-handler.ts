@@ -9,6 +9,42 @@ interface InvoicePartnerData {
   invoiceType?: string
 }
 
+/**
+ * Create a supplier warehouse for an existing partner and link it.
+ * Used to backfill partners created without one (e.g. from SERVICES invoices).
+ */
+export async function createWarehouseForPartner(
+  supabase: SupabaseClient,
+  partner: { id: number; name: string; address?: string | null }
+): Promise<{ warehouseId: number | null; error: string | null }> {
+  const { data: warehouse, error: warehouseError } = await supabase
+    .from("warehouse")
+    .insert({
+      name: partner.name,
+      address: partner.address || "",
+      type: "supplier",
+    })
+    .select("id")
+    .single()
+
+  if (warehouseError || !warehouse) {
+    return { warehouseId: null, error: warehouseError?.message || "Warehouse insert returned no row" }
+  }
+
+  const { error: updateError } = await supabase
+    .from("partner")
+    .update({ warehouse_id: warehouse.id })
+    .eq("id", partner.id)
+
+  if (updateError) {
+    // Don't leave an orphan warehouse behind
+    await supabase.from("warehouse").delete().eq("id", warehouse.id)
+    return { warehouseId: null, error: updateError.message }
+  }
+
+  return { warehouseId: warehouse.id, error: null }
+}
+
 export async function ensurePartnerExists(
   supabase: SupabaseClient,
   invoiceData: InvoicePartnerData,
