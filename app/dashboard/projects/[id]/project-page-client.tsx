@@ -2032,6 +2032,7 @@ export default function ProjectPageClient({
           open={isEditContractDrawerOpen}
           onOpenChange={setIsEditContractDrawerOpen}
           contract={selectedContract}
+          personContracts={contracts.filter((c) => c.person_id === selectedContract.person_id)}
           staff={staff}
           onSuccess={fetchContracts}
         />
@@ -2089,6 +2090,14 @@ interface ContractLine {
 }
 
 const emptyContractLine = (): ContractLine => ({ description: "", qty: "", unit: "", price: "", total: "" })
+
+// Edit drawer lines map to existing contract rows; new lines have no contractId yet
+interface EditContractLine extends ContractLine {
+  contractId: number | null
+  txCount: number
+}
+
+const emptyEditContractLine = (): EditContractLine => ({ ...emptyContractLine(), contractId: null, txCount: 0 })
 
 function CreateContractDrawer({
   open,
@@ -2391,21 +2400,18 @@ function EditContractDrawer({
   open,
   onOpenChange,
   contract,
+  personContracts,
   staff,
   onSuccess,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   contract: Contract
+  personContracts: Contract[]
   staff: Person[]
   onSuccess: () => void
 }) {
   const [personId, setPersonId] = useState(contract.person_id.toString())
-  const [description, setDescription] = useState(contract.description)
-  const [price, setPrice] = useState(contract.price?.toString() || "")
-  const [unit, setUnit] = useState(contract.unit || "")
-  const [qty, setQty] = useState(contract.qty?.toString() || "")
-  const [total, setTotal] = useState(contract.total.toString())
   const [status, setStatus] = useState(contract.status)
   const [startDate, setStartDate] = useState(
     contract.start ? new Date(contract.start).toISOString().split("T")[0] : ""
@@ -2413,42 +2419,75 @@ function EditContractDrawer({
   const [endDate, setEndDate] = useState(
     contract.end ? new Date(contract.end).toISOString().split("T")[0] : ""
   )
+  const [lines, setLines] = useState<EditContractLine[]>([])
+  const [removedIds, setRemovedIds] = useState<number[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const supabase = createClient()
   const { toast } = useToast()
 
-  // Auto-calculate total when price or qty changes
+  // The whole service list of this person is edited at once; shared fields
+  // (person, status, dates) initialize from the clicked contract and apply to
+  // every line on save
   useEffect(() => {
-    const priceNum = parseFormattedNumber(price)
-    const qtyNum = parseFormattedNumber(qty)
-    const calculatedTotal = priceNum * qtyNum
-    setTotal(calculatedTotal > 0 ? handleNumberInput(calculatedTotal.toString()) : "")
-  }, [price, qty])
-
-  // Update form when contract changes
-  useEffect(() => {
+    if (!open) return
     setPersonId(contract.person_id.toString())
-    setDescription(contract.description)
-    setPrice(contract.price ? handleNumberInput(contract.price.toString()) : "")
-    setUnit(contract.unit || "")
-    setQty(contract.qty ? handleNumberInput(contract.qty.toString()) : "")
-    setTotal(handleNumberInput(contract.total.toString()))
     setStatus(contract.status)
-    setStartDate(
-      contract.start ? new Date(contract.start).toISOString().split("T")[0] : ""
+    setStartDate(contract.start ? new Date(contract.start).toISOString().split("T")[0] : "")
+    setEndDate(contract.end ? new Date(contract.end).toISOString().split("T")[0] : "")
+    setLines(
+      personContracts.map((c) => ({
+        contractId: c.id,
+        description: c.description,
+        qty: c.qty ? handleNumberInput(c.qty.toString()) : "",
+        unit: c.unit || "",
+        price: c.price ? handleNumberInput(c.price.toString()) : "",
+        total: handleNumberInput(c.total.toString()),
+        txCount: (c.contract_transaction || []).length,
+      }))
     )
-    setEndDate(
-      contract.end ? new Date(contract.end).toISOString().split("T")[0] : ""
-    )
-  }, [contract])
+    setRemovedIds([])
+    // personContracts comes from the same fetch as contract — re-init on open is enough
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contract, open])
+
+  const updateLine = (index: number, field: keyof ContractLine, value: string) => {
+    setLines((prev) => {
+      const next = [...prev]
+      const line = { ...next[index], [field]: value }
+      // Auto-calculate total when qty or price changes
+      if (field === "qty" || field === "price") {
+        const t = parseFormattedNumber(line.qty) * parseFormattedNumber(line.price)
+        if (t > 0) line.total = handleNumberInput(t.toString())
+      }
+      next[index] = line
+      return next
+    })
+  }
+
+  const removeLine = (index: number) => {
+    const line = lines[index]
+    if (line.contractId) setRemovedIds((prev) => [...prev, line.contractId!])
+    setLines((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const grandTotal = lines.reduce((sum, l) => sum + parseFormattedNumber(l.total), 0)
 
   const handleSubmit = async () => {
-    // Validation
-    if (!personId || !description || !total) {
+    if (!personId) {
+      toast({ title: "Սխալ", description: "Խնդրում ենք ընտրել աշխատակցին", variant: "destructive" })
+      return
+    }
+
+    // Blank added lines are ignored; existing lines must stay valid
+    const kept = lines.filter(
+      (l) => l.contractId || l.description.trim() || l.qty || l.price || l.total
+    )
+    const invalid = kept.find((l) => !l.description.trim() || parseFormattedNumber(l.total) <= 0)
+    if (invalid) {
       toast({
         title: "Սխալ",
-        description: "Խնդրում ենք լրացնել պարտադիր դաշտերը",
+        description: "Յուրաքանչյուր տող պետք է ունենա նկարագրություն և ընդհանուր գումար",
         variant: "destructive",
       })
       return
@@ -2457,35 +2496,50 @@ function EditContractDrawer({
     setIsSubmitting(true)
 
     try {
-      const { error } = await supabase
-        .from("contract")
-        .update({
-          person_id: parseInt(personId),
-          description,
-          price: price ? parseFormattedNumber(price) : null,
-          unit: unit || null,
-          qty: qty ? parseFormattedNumber(qty) : null,
-          total: parseFormattedNumber(total),
-          status,
-          start: startDate ? new Date(startDate).toISOString() : null,
-          end: endDate ? new Date(endDate).toISOString() : null,
-        })
-        .eq("id", contract.id)
-
-      if (error) throw error
-
-      toast({
-        title: "Հաջողություն",
-        description: "Պայմանագիրը հաջողությամբ թարմացվեց",
+      const shared = {
+        person_id: parseInt(personId),
+        status,
+        start: startDate ? new Date(startDate).toISOString() : null,
+        end: endDate ? new Date(endDate).toISOString() : null,
+      }
+      const lineFields = (l: EditContractLine) => ({
+        description: l.description.trim(),
+        price: l.price ? parseFormattedNumber(l.price) : null,
+        unit: l.unit || null,
+        qty: l.qty ? parseFormattedNumber(l.qty) : null,
+        total: parseFormattedNumber(l.total),
       })
+
+      if (removedIds.length > 0) {
+        const { error } = await supabase.from("contract").delete().in("id", removedIds)
+        if (error) throw error
+      }
+
+      for (const line of kept.filter((l) => l.contractId)) {
+        const { error } = await supabase
+          .from("contract")
+          .update({ ...shared, ...lineFields(line) })
+          .eq("id", line.contractId!)
+        if (error) throw error
+      }
+
+      const inserts = kept
+        .filter((l) => !l.contractId)
+        .map((line) => ({ ...shared, ...lineFields(line), project_id: contract.project_id }))
+      if (inserts.length > 0) {
+        const { error } = await supabase.from("contract").insert(inserts)
+        if (error) throw error
+      }
+
+      toast({ title: "Հաջողություն", description: "Պայմանագրերը հաջողությամբ թարմացվեցին" })
 
       onOpenChange(false)
       onSuccess()
     } catch (error) {
-      console.error("Error updating contract:", error)
+      console.error("Error updating contracts:", error)
       toast({
         title: "Սխալ",
-        description: "Չհաջողվեց թարմացնել պայմանագիրը",
+        description: "Չհաջողվեց թարմացնել պայմանագրերը",
         variant: "destructive",
       })
     } finally {
@@ -2497,9 +2551,9 @@ function EditContractDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="overflow-y-auto sm:max-w-[70vw]">
         <SheetHeader>
-          <SheetTitle>Խմբագրել պայմանագիրը</SheetTitle>
+          <SheetTitle>Խմբագրել պայմանագրերը</SheetTitle>
           <SheetDescription>
-            Թարմացրեք աշխատանքային պայմանագրի տվյալները
+            Աշխատակցի ծառայությունների ամբողջ ցանկը․ յուրաքանչյուր տողն առանձին պայմանագիր է
           </SheetDescription>
         </SheetHeader>
 
@@ -2564,122 +2618,143 @@ function EditContractDrawer({
             </div>
           </div>
 
-          {/* Service line — same layout as the bulk creation drawer */}
-          <div className="space-y-2 pt-2">
-            <Label>Ծառայություն</Label>
+          {/* Service lines — the person's full list; each line is a separate contract */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <Label>Ծառայություններ</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setLines((prev) => [...prev, emptyEditContractLine()])}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Ավելացնել տող
+              </Button>
+            </div>
+
             <div className="border rounded-lg overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[42%]">Ծառայություն</TableHead>
-                    <TableHead className="w-[12%]">Քնկ.</TableHead>
-                    <TableHead className="w-[14%]">Միավոր</TableHead>
-                    <TableHead className="w-[16%]">Գին</TableHead>
+                    <TableHead className="w-[40%]">Ծառայություն</TableHead>
+                    <TableHead className="w-[10%]">Քնկ.</TableHead>
+                    <TableHead className="w-[12%]">Միավոր</TableHead>
+                    <TableHead className="w-[14%]">Գին</TableHead>
                     <TableHead className="w-[16%]">Ընդամենը</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow>
-                    <TableCell>
-                      <Input
-                        placeholder="Ծառայության նկարագրությունը"
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="text"
-                        placeholder="0"
-                        value={qty}
-                        onChange={(e) => setQty(handleNumberInput(e.target.value))}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        placeholder="օր, մ²..."
-                        value={unit}
-                        onChange={(e) => setUnit(e.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="text"
-                        placeholder="0"
-                        value={price}
-                        onChange={(e) => setPrice(handleNumberInput(e.target.value))}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="text"
-                        placeholder="0"
-                        value={total}
-                        onChange={(e) => setTotal(handleNumberInput(e.target.value))}
-                      />
-                    </TableCell>
-                  </TableRow>
+                  {lines.map((line, index) => (
+                    <TableRow key={line.contractId ?? `new-${index}`}>
+                      <TableCell>
+                        <Input
+                          placeholder="Ծառայության նկարագրությունը"
+                          value={line.description}
+                          onChange={(e) => updateLine(index, "description", e.target.value)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="text"
+                          placeholder="0"
+                          value={line.qty}
+                          onChange={(e) => updateLine(index, "qty", handleNumberInput(e.target.value))}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          placeholder="օր, մ²..."
+                          value={line.unit}
+                          onChange={(e) => updateLine(index, "unit", e.target.value)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="text"
+                          placeholder="0"
+                          value={line.price}
+                          onChange={(e) => updateLine(index, "price", handleNumberInput(e.target.value))}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="text"
+                          placeholder="0"
+                          value={line.total}
+                          onChange={(e) => updateLine(index, "total", handleNumberInput(e.target.value))}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeLine(index)}
+                          disabled={lines.length === 1 || line.txCount > 0}
+                          title={line.txCount > 0 ? "Հնարավոր չէ ջնջել․ ունի կապված գործարքներ" : undefined}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>
-            {price && qty && (
-              <p className="text-xs text-muted-foreground">
-                Ավտոմատ հաշվարկված: {qty} × {price} = {total}
-              </p>
-            )}
+
+            <div className="flex justify-end items-center gap-3 pt-2 border-t">
+              <span className="text-sm text-muted-foreground">
+                {lines.filter((l) => l.description.trim()).length} պայմանագիր
+                {removedIds.length > 0 ? ` • կջնջվի ${removedIds.length}` : ""} • Ընդհանուր գումար
+              </span>
+              <span className="text-xl font-bold">{grandTotal.toLocaleString()} ֏</span>
+            </div>
           </div>
 
-          {/* Contract Transactions Section */}
-          {contract.contract_transaction && contract.contract_transaction.length > 0 && (
-            <div className="space-y-2 pt-4 border-t">
-              <Label>Գործարքներ ({contract.contract_transaction.length})</Label>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {contract.contract_transaction.map((ct) => (
-                  <div
-                    key={ct.id}
-                    className="p-3 border rounded-md bg-muted/50 space-y-1"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">
-                        {formatCurrency(ct.transaction?.amount || 0)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(ct.transaction?.created_at)}
-                      </span>
+          {/* Contract Transactions Section — all payments across the person's contracts */}
+          {(() => {
+            const allTransactions = personContracts.flatMap((c) => c.contract_transaction || [])
+            if (allTransactions.length === 0) return null
+            const paidTotal = allTransactions.reduce((sum, ct) => sum + (ct.transaction?.amount || 0), 0)
+            const contractsTotal = personContracts.reduce((sum, c) => sum + c.total, 0)
+            return (
+              <div className="space-y-2 pt-4 border-t">
+                <Label>Գործարքներ ({allTransactions.length})</Label>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {allTransactions.map((ct) => (
+                    <div
+                      key={ct.id}
+                      className="p-3 border rounded-md bg-muted/50 space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">
+                          {formatCurrency(ct.transaction?.amount || 0)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDate(ct.transaction?.created_at)}
+                        </span>
+                      </div>
+                      {ct.transaction?.from_account && ct.transaction?.to_account && (
+                        <p className="text-xs text-muted-foreground">
+                          {ct.transaction.from_account.name} → {ct.transaction.to_account.name}
+                        </p>
+                      )}
                     </div>
-                    {ct.transaction?.from_account && ct.transaction?.to_account && (
-                      <p className="text-xs text-muted-foreground">
-                        {ct.transaction.from_account.name} → {ct.transaction.to_account.name}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <span className="text-sm font-medium">Ընդամենը վճարված:</span>
+                  <span className="font-bold">{formatCurrency(paidTotal)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Մնացած:</span>
+                  <span className="font-medium">{formatCurrency(contractsTotal - paidTotal)}</span>
+                </div>
               </div>
-              <div className="flex items-center justify-between pt-2 border-t">
-                <span className="text-sm font-medium">Ընդամենը վճարված:</span>
-                <span className="font-bold">
-                  {formatCurrency(
-                    contract.contract_transaction.reduce(
-                      (sum, ct) => sum + (ct.transaction?.amount || 0),
-                      0
-                    )
-                  )}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Մնացած:</span>
-                <span className="font-medium">
-                  {formatCurrency(
-                    contract.total -
-                      contract.contract_transaction.reduce(
-                        (sum, ct) => sum + (ct.transaction?.amount || 0),
-                        0
-                      )
-                  )}
-                </span>
-              </div>
-            </div>
-          )}
+            )
+          })()}
         </div>
 
         <SheetFooter>
