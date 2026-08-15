@@ -475,7 +475,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-[90vw] overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-[90vw] flex flex-col overflow-y-hidden">
         <SheetHeader>
           <div className="flex items-start justify-between gap-4 pr-8">
             <div className="space-y-1.5">
@@ -518,9 +518,10 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
           </div>
         </SheetHeader>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-6">
+        {/* Each column scrolls on its own; the drawer itself stays fixed */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-6 flex-1 min-h-0 overflow-y-auto md:overflow-y-hidden">
           {/* Left Column - Person Info */}
-          <div className="space-y-4">
+          <div className="space-y-4 md:overflow-y-auto md:min-h-0 md:pr-2">
             <h3 className="font-semibold">Անձնական տվյալներ</h3>
 
             <div className="space-y-2">
@@ -685,8 +686,8 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
             )}
           </div>
 
-          {/* Right Column - Related Data */}
-          <div className="space-y-4">
+          {/* Middle Column - Related Data */}
+          <div className="space-y-4 md:overflow-y-auto md:min-h-0 md:pr-2">
             <h3 className="font-semibold">Կապված տվյալներ</h3>
 
             {/* Contracts Section */}
@@ -731,10 +732,108 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
               )}
             </div>
 
+            {/* Documents Section */}
+            <div className="space-y-2 border-t pt-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <Label>Փաստաթղթեր ({documents.length})</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    className="hidden"
+                    id="doc-upload"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        const docType = (document.getElementById("doc-type-select") as HTMLSelectElement)?.value || "other"
+                        handleUploadDocument(file, docType)
+                        e.target.value = ""
+                      }
+                    }}
+                  />
+                  <select
+                    id="doc-type-select"
+                    className="h-8 text-xs border rounded-md px-2 bg-background"
+                    defaultValue="passport"
+                  >
+                    <option value="passport">Անձնագիր</option>
+                    <option value="license">Վարորդական իրավունք</option>
+                    <option value="other">Այլ</option>
+                  </select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => document.getElementById("doc-upload")?.click()}
+                    disabled={uploading}
+                  >
+                    {uploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-2" />
+                    )}
+                    Ավելացնել
+                  </Button>
+                </div>
+              </div>
+
+              {loadingDocs ? (
+                <p className="text-sm text-muted-foreground">Բեռնում...</p>
+              ) : documents.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Փաստաթղթեր չկան</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-2">
+                  {documents.map((doc) => {
+                    const isImage = doc.mime_type?.startsWith("image/")
+                    const url = getDocumentUrl(doc)
+                    return (
+                      <div
+                        key={doc.id}
+                        className="flex items-center gap-3 p-3 border rounded-md hover:bg-accent/50 cursor-pointer group"
+                        onClick={() => {
+                          if (url) {
+                            setPreviewUrl(url)
+                            setPreviewMime(doc.mime_type)
+                            setPreviewOpen(true)
+                          }
+                        }}
+                      >
+                        <div className="h-10 w-10 rounded bg-muted flex items-center justify-center shrink-0">
+                          {isImage && url ? (
+                            <img src={url} alt="" className="h-10 w-10 rounded object-cover" />
+                          ) : (
+                            <FileText className="h-5 w-5 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{doc.file_name || "Փաստաթուղթ"}</p>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs">{getDocTypeLabel(doc.type)}</Badge>
+                            <span className="text-xs text-muted-foreground">{formatDate(doc.created_at)}</span>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 opacity-0 group-hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteDocument(doc)
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
           </div>
 
           {/* Third Column - Transactions */}
-          <div className="flex flex-col gap-4 min-h-0">
+          <div className="flex flex-col gap-4 min-h-0 md:overflow-hidden">
             <h3 className="font-semibold">Գործարքներ</h3>
 
             {person.account_id ? (
@@ -777,7 +876,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
                       ) : visibleTransactions.length === 0 ? (
                         <p className="text-sm text-muted-foreground">Գործարքներ չկան</p>
                       ) : (
-                        <div className="space-y-2 flex-1 min-h-[24rem] overflow-y-auto">
+                        <div className="space-y-2 flex-1 min-h-0 overflow-y-auto">
                           {visibleTransactions.map((transaction) => {
                             const isOutgoing = transaction.from === person.account_id
                             const linkedContract = (transaction.contract_transaction || [])
@@ -856,101 +955,6 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
           </div>
         </div>
 
-        {/* Documents - Full width bottom section */}
-        <div className="space-y-4 border-t pt-6 pb-6">
-          <div className="flex items-center justify-between gap-4">
-            <h3 className="font-semibold">Փաստաթղթեր ({documents.length})</h3>
-            <div className="flex items-center gap-2">
-              <input
-                type="file"
-                accept="image/*,.pdf"
-                className="hidden"
-                id="doc-upload"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) {
-                    const docType = (document.getElementById("doc-type-select") as HTMLSelectElement)?.value || "other"
-                    handleUploadDocument(file, docType)
-                    e.target.value = ""
-                  }
-                }}
-              />
-              <select
-                id="doc-type-select"
-                className="h-9 text-sm border rounded-md px-3 bg-background"
-                defaultValue="passport"
-              >
-                <option value="passport">Անձնագիր</option>
-                <option value="license">Վարորդական իրավունք</option>
-                <option value="other">Այլ</option>
-              </select>
-              <Button
-                variant="outline"
-                onClick={() => document.getElementById("doc-upload")?.click()}
-                disabled={uploading}
-              >
-                {uploading ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Plus className="h-4 w-4 mr-2" />
-                )}
-                Ավելացնել
-              </Button>
-            </div>
-          </div>
-
-          {loadingDocs ? (
-            <p className="text-sm text-muted-foreground">Բեռնում...</p>
-          ) : documents.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Փաստաթղթեր չկան</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-              {documents.map((doc) => {
-                  const isImage = doc.mime_type?.startsWith("image/")
-                  const url = getDocumentUrl(doc)
-                  return (
-                    <div
-                      key={doc.id}
-                      className="flex items-center gap-3 p-3 border rounded-md hover:bg-accent/50 cursor-pointer group"
-                      onClick={() => {
-                        if (url) {
-                          setPreviewUrl(url)
-                          setPreviewMime(doc.mime_type)
-                          setPreviewOpen(true)
-                        }
-                      }}
-                    >
-                      <div className="h-10 w-10 rounded bg-muted flex items-center justify-center shrink-0">
-                        {isImage && url ? (
-                          <img src={url} alt="" className="h-10 w-10 rounded object-cover" />
-                        ) : (
-                          <FileText className="h-5 w-5 text-muted-foreground" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{doc.file_name || "Փաստաթուղթ"}</p>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">{getDocTypeLabel(doc.type)}</Badge>
-                          <span className="text-xs text-muted-foreground">{formatDate(doc.created_at)}</span>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 opacity-0 group-hover:opacity-100"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDeleteDocument(doc)
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
       </SheetContent>
 
       {/* Document Preview Dialog */}

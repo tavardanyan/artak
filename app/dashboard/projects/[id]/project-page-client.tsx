@@ -150,6 +150,7 @@ interface ContractTransaction {
     id: number
     amount: number
     created_at: string
+    note?: string | null
     from_account?: {
       name: string
       currency: string
@@ -662,6 +663,7 @@ export default function ProjectPageClient({
               id,
               amount,
               created_at,
+              note,
               accepted_at,
               rejected_at,
               from_account:from(name, currency),
@@ -2925,7 +2927,7 @@ function EditContractDrawer({
             return (
               <div className="space-y-2 pt-4 border-t">
                 <Label>Գործարքներ ({allTransactions.length})</Label>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
                   {allTransactions.map((ct) => (
                     <div
                       key={ct.id}
@@ -2943,6 +2945,9 @@ function EditContractDrawer({
                         <p className="text-xs text-muted-foreground">
                           {ct.transaction.from_account.name} → {ct.transaction.to_account.name}
                         </p>
+                      )}
+                      {ct.transaction?.note && (
+                        <p className="text-xs whitespace-pre-wrap">{ct.transaction.note}</p>
                       )}
                     </div>
                   ))}
