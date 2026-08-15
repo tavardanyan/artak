@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button"
 import { Loader2, Package, FileText, Calendar, Scissors } from "lucide-react"
 import { SplitTransferModal } from "@/components/split-transfer-modal"
 import { LabelCell } from "@/components/label-cell"
+import { TransferStatusActions } from "@/components/transfer-status-actions"
 
 interface TransferItem {
   id: number
@@ -205,6 +206,7 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
                   <span className="text-sm text-muted-foreground">Վիճակ</span>
                   {getStatusBadge(transfer)}
                 </div>
+                <TransferStatusActions transfer={transfer} onChanged={fetchTransferData} />
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <p className="text-muted-foreground">Ստեղծվել է</p>

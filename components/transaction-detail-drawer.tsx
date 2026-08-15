@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { TransferStatusActions } from "@/components/transfer-status-actions"
 import {
   Sheet,
   SheetContent,
@@ -527,6 +528,11 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
                       </span>
                     </div>
                   )}
+
+                  <TransferStatusActions
+                    transfer={transaction.transfer}
+                    onChanged={fetchTransactionData}
+                  />
 
                   {/* Transfer Items Table */}
                   {transaction.transfer.transfer_item && transaction.transfer.transfer_item.length > 0 && (

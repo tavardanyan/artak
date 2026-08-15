@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils"
 import { SplitTransferModal } from "@/components/split-transfer-modal"
 import { XimichitModal } from "@/components/ximichit-modal"
 import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
+import { TransferStatusActions } from "@/components/transfer-status-actions"
 
 interface Transfer {
   id: number
@@ -863,65 +864,6 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
     }
   }
 
-  const handleAccept = async (transferId: number) => {
-    try {
-      const now = new Date().toISOString()
-      const transfer = transfers.find(t => t.id === transferId)
-      const updateData: Record<string, string> = { acepted_at: now }
-      if (!transfer?.delivered_at) {
-        updateData.delivered_at = now
-      }
-      const { error } = await supabase
-        .from("transfer")
-        .update(updateData)
-        .eq("id", transferId)
-
-      if (error) throw error
-
-      toast({
-        title: "Հաջողություն",
-        description: "Տեղափոխումը ընդունվեց",
-      })
-
-      setIsTransferDrawerOpen(false)
-      fetchTransfers()
-      fetchWarehouseItems() // Refresh stock
-    } catch (error) {
-      console.error("Error:", error)
-      toast({
-        title: "Սխալ",
-        description: "Չհաջողվեց ընդունել տեղափոխումը",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleReject = async (transferId: number) => {
-    try {
-      const { error } = await supabase
-        .from("transfer")
-        .update({ rejected_at: new Date().toISOString() })
-        .eq("id", transferId)
-
-      if (error) throw error
-
-      toast({
-        title: "Հաջողություն",
-        description: "Տեղափոխումը մերժվեց",
-      })
-
-      setIsTransferDrawerOpen(false)
-      fetchTransfers()
-    } catch (error) {
-      console.error("Error:", error)
-      toast({
-        title: "Սխալ",
-        description: "Չհաջողվեց մերժել տեղափոխումը",
-        variant: "destructive",
-      })
-    }
-  }
-
   const getTransferStatus = (transfer: Transfer) => {
     if (transfer.rejected_at) {
       return <Badge variant="destructive">Մերժված</Badge>
@@ -1550,40 +1492,32 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
             {/* Action Buttons */}
             {selectedTransfer && (
               <div className="flex flex-wrap gap-2 pb-4 border-b">
+                {canModifyTransfer(selectedTransfer) && !selectedTransfer.delivered_at && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSetPending(selectedTransfer.id)}
+                  >
+                    Նշանակել որպես ընթացիկ
+                  </Button>
+                )}
+                <TransferStatusActions
+                  transfer={selectedTransfer}
+                  onChanged={() => {
+                    setIsTransferDrawerOpen(false)
+                    fetchTransfers()
+                    fetchWarehouseItems()
+                  }}
+                />
                 {canModifyTransfer(selectedTransfer) && (
-                  <>
-                    {!selectedTransfer.delivered_at && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleSetPending(selectedTransfer.id)}
-                      >
-                        Նշանակել որպես ընթացիկ
-                      </Button>
-                    )}
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => handleAccept(selectedTransfer.id)}
-                    >
-                      Ընդունել
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleReject(selectedTransfer.id)}
-                    >
-                      Մերժել
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsSplitModalOpen(true)}
-                    >
-                      <Scissors className="h-4 w-4 mr-2" />
-                      Բաժանել
-                    </Button>
-                  </>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsSplitModalOpen(true)}
+                  >
+                    <Scissors className="h-4 w-4 mr-2" />
+                    Բաժանել
+                  </Button>
                 )}
                 <div className="flex-1" />
                 <Button

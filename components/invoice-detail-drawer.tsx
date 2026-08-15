@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Loader2, TruckIcon, ExternalLink, Plus } from "lucide-react"
 import Link from "next/link"
 import { createTransferFromInvoice } from "@/lib/invoice-transfer-handler"
+import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -92,6 +93,8 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null)
   const [items, setItems] = useState<InvoiceItem[]>([])
   const [transfers, setTransfers] = useState<RelatedTransfer[]>([])
+  const [viewTransferId, setViewTransferId] = useState<number | null>(null)
+  const [isTransferDetailOpen, setIsTransferDetailOpen] = useState(false)
   const [creatingTransfer, setCreatingTransfer] = useState(false)
   const [supplierName, setSupplierName] = useState<string | null>(null)
   const [buyerName, setBuyerName] = useState<string | null>(null)
@@ -418,13 +421,20 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
                     </TableHeader>
                     <TableBody>
                       {transfers.map((transfer) => (
-                        <TableRow key={transfer.id}>
+                        <TableRow
+                          key={transfer.id}
+                          className="cursor-pointer hover:bg-accent"
+                          onClick={() => {
+                            setViewTransferId(transfer.id)
+                            setIsTransferDetailOpen(true)
+                          }}
+                        >
                           <TableCell className="font-medium">#{transfer.id}</TableCell>
                           <TableCell>{transfer.from_warehouse?.name || `#${transfer.from}`}</TableCell>
                           <TableCell>{transfer.to_warehouse?.name || `#${transfer.to}`}</TableCell>
                           <TableCell>{getTransferStatus(transfer)}</TableCell>
                           <TableCell>{formatDateTime(transfer.created_at)}</TableCell>
-                          <TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
                             <Button asChild variant="outline" size="sm">
                               <Link href={`/dashboard/warehouse?id=${transfer.to}`}>
                                 <ExternalLink className="h-4 w-4 mr-1" />
@@ -657,6 +667,16 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
           </div>
         )}
       </SheetContent>
+
+      {/* Transfer detail (status can change inside) — refresh the list on close */}
+      <TransferDetailDrawer
+        open={isTransferDetailOpen}
+        onOpenChange={(o) => {
+          setIsTransferDetailOpen(o)
+          if (!o) fetchInvoiceDetail()
+        }}
+        transferId={viewTransferId}
+      />
     </Sheet>
   )
 }

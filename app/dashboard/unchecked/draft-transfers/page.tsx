@@ -151,7 +151,15 @@ export default function DraftTransfersPage() {
       </Card>
 
       {selectedTransferId && (
-        <TransferDetailDrawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen} transferId={selectedTransferId} />
+        <TransferDetailDrawer
+          open={isDrawerOpen}
+          onOpenChange={(o) => {
+            setIsDrawerOpen(o)
+            // Status may have changed inside the drawer
+            if (!o) fetchDraftTransfers()
+          }}
+          transferId={selectedTransferId}
+        />
       )}
     </div>
   )
