@@ -63,7 +63,7 @@ async function transcribeVoice(fileId: string): Promise<string | null> {
   const audio = new Uint8Array(await audioRes.arrayBuffer())
 
   const { text } = await generateText({
-    model: "google/gemini-3.5-flash",
+    model: "google/gemini-3.7-flash",
     messages: [
       {
         role: "user",

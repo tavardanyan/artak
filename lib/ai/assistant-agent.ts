@@ -12,7 +12,7 @@ export function createAssistantAgent(
   opts?: { extraInstructions?: string }
 ) {
   return new ToolLoopAgent({
-    model: "anthropic/claude-sonnet-5",
+    model: "google/gemini-3.1-pro-preview",
     instructions: opts?.extraInstructions
       ? `${ASSISTANT_SYSTEM_PROMPT}\n\n${opts.extraInstructions}`
       : ASSISTANT_SYSTEM_PROMPT,
