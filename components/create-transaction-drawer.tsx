@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-format"
 import {
@@ -95,6 +95,11 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess, initial
   const { toast } = useToast()
   const supabase = createClient()
 
+  // Group prefill can't be applied immediately: the group options load only
+  // after persons/accounts resolve, and the account effect resets the
+  // selection in the meantime — so remember it and apply once options exist
+  const pendingGroupIdRef = useRef<number | null>(null)
+
   useEffect(() => {
     if (open) {
       fetchAccounts()
@@ -104,11 +109,22 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess, initial
       if (initialData) {
         if (initialData.toAccountId) setToAccount(initialData.toAccountId.toString())
         if (initialData.projectId) setSelectedProject(initialData.projectId.toString())
-        if (initialData.groupId) setSelectedGroup(initialData.groupId.toString())
+        pendingGroupIdRef.current = initialData.groupId ?? null
       }
+    } else {
+      pendingGroupIdRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // Apply the pending group prefill once its option has loaded
+  useEffect(() => {
+    const pending = pendingGroupIdRef.current
+    if (pending && contractGroups.some((g) => g.id === pending)) {
+      setSelectedGroup(pending.toString())
+      pendingGroupIdRef.current = null
+    }
+  }, [contractGroups])
 
   const fetchAccounts = async () => {
     try {
