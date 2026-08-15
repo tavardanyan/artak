@@ -9,7 +9,9 @@ export const maxDuration = 60
 export const dynamic = "force-dynamic"
 
 const DEFAULT_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
-const PAGE_LIMIT = 500
+// Small pages + per-page anchor persistence: a run killed at maxDuration keeps
+// the progress it made, so repeated runs always advance through a backlog
+const PAGE_LIMIT = 50
 
 // Concurrent syncs interleave the delete+reinsert of invoice_items, which
 // doubles quantities in auto-created transfers (or skips them entirely).
@@ -257,10 +259,20 @@ async function runSync(supabase: SupabaseClient, tin: string, startAnchor: strin
     }
 
     pagesProcessed++
+
+    // Persist progress after every page — a run killed by the platform
+    // timeout resumes from here instead of re-doing the whole backlog
+    await supabase
+      .from("settings")
+      .upsert({
+        key: "tax_service_sync",
+        value: { lastSyncDate: new Date().toISOString(), lastAnchor: cursor },
+      })
+
     if (srcInvoices.length < PAGE_LIMIT) break // last page
   }
 
-  // Persist new anchor and last-sync timestamp
+  // A run with an empty backlog still counts as a completed sync
   await supabase
     .from("settings")
     .upsert({

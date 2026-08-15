@@ -134,9 +134,17 @@ interface Transaction {
   }
 }
 
+interface ContractGroup {
+  id: number
+  project_id: number
+  person_id: number
+  name: string
+}
+
 interface ContractTransaction {
   id: number
-  contact_id: number
+  contact_id: number | null
+  group_id?: number | null
   transaction_id: number
   transaction?: {
     id: number
@@ -166,6 +174,7 @@ interface Contract {
   status: string
   project_id: number
   person_id: number
+  group_id: number
   person?: {
     first_name: string
     last_lame: string | null
@@ -298,6 +307,8 @@ export default function ProjectPageClient({
   const [project, setProject] = useState<Project | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [contracts, setContracts] = useState<Contract[]>([])
+  const [contractGroups, setContractGroups] = useState<ContractGroup[]>([])
+  const [groupPayments, setGroupPayments] = useState<Map<number, ContractTransaction[]>>(new Map())
   const [contacts, setContacts] = useState<Contact[]>([])
   const [staff, setStaff] = useState<Person[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -449,17 +460,22 @@ export default function ProjectPageClient({
       // Contracts: remaining to pay = total of non-rejected contracts - paid
       const { data: subContracts } = await supabase
         .from("contract")
-        .select("id, total, status")
+        .select("id, total, status, group_id")
         .eq("project_id", sub.id)
         .neq("status", "rejected")
       const contractTotals = (subContracts || []).reduce((s: number, c: any) => s + (c.total || 0), 0)
       let contractPaid = 0
       if (subContracts && subContracts.length > 0) {
         const ids = subContracts.map((c: any) => c.id)
+        const gids = Array.from(new Set((subContracts || []).map((c: any) => c.group_id).filter(Boolean)))
+        // Payments link either to a group or (legacy) directly to a contract
+        const orParts: string[] = []
+        if (gids.length > 0) orParts.push(`group_id.in.(${gids.join(",")})`)
+        orParts.push(`and(group_id.is.null,contact_id.in.(${ids.join(",")}))`)
         const { data: cts } = await supabase
           .from("contract_transaction")
-          .select("contact_id, transaction:transaction_id!inner(amount, accepted_at, rejected_at)")
-          .in("contact_id", ids)
+          .select("contact_id, group_id, transaction:transaction_id!inner(amount, accepted_at, rejected_at)")
+          .or(orParts.join(","))
           .not("transaction.accepted_at", "is", null)
           .is("transaction.rejected_at", null)
         contractPaid = (cts || []).reduce((s: number, ct: any) => s + (ct.transaction?.amount || 0), 0)
@@ -605,62 +621,86 @@ export default function ProjectPageClient({
 
   const fetchContracts = async () => {
     try {
-      const { data, error } = await supabase
-        .from("contract")
-        .select(`
-          *,
-          person:person_id(first_name, last_lame, position)
-        `)
-        .eq("project_id", projectId)
-        .order("created_at", { ascending: false })
+      const [contractsRes, groupsRes] = await Promise.all([
+        supabase
+          .from("contract")
+          .select(`
+            *,
+            person:person_id(first_name, last_lame, position)
+          `)
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("contract_group")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("created_at"),
+      ])
 
-      if (error) throw error
+      if (contractsRes.error) throw contractsRes.error
+      if (groupsRes.error) throw groupsRes.error
 
-      // Fetch contract transactions separately for each contract
-      if (data && data.length > 0) {
-        const contractsWithTransactions = await Promise.all(
-          data.map(async (contract) => {
-            const { data: ctData, error: ctError } = await supabase
-              .from("contract_transaction")
-              .select(`
-                contact_id,
-                transaction_id,
-                transaction:transaction_id(
-                  id,
-                  amount,
-                  created_at,
-                  accepted_at,
-                  rejected_at,
-                  from_account:from(name, currency),
-                  to_account:to(name, currency)
-                )
-              `)
-              .eq("contact_id", contract.id)
+      const data = contractsRes.data || []
+      const groups = (groupsRes.data || []) as ContractGroup[]
 
-            if (ctError) {
-              console.error("Error fetching contract transactions:", ctError)
-              return { ...contract, contract_transaction: [] }
-            }
-
-            return {
-              ...contract,
-              // Only accepted payments count as contract payments
-              contract_transaction: (ctData || [])
-                .filter((ct: any) => ct.transaction?.accepted_at && !ct.transaction?.rejected_at)
-                .map(ct => ({
-                  id: ct.contact_id, // Using contact_id as id
-                  contact_id: ct.contact_id,
-                  transaction_id: ct.transaction_id,
-                  transaction: ct.transaction
-                }))
-            }
-          })
+      // One query for all payments: group-linked rows plus legacy rows that
+      // only carry a contract link
+      const contractIds = data.map((c: any) => c.id)
+      const groupIds = groups.map((g) => g.id)
+      let payments: any[] = []
+      if (groupIds.length > 0 || contractIds.length > 0) {
+        const orParts: string[] = []
+        if (groupIds.length > 0) orParts.push(`group_id.in.(${groupIds.join(",")})`)
+        if (contractIds.length > 0) orParts.push(`and(group_id.is.null,contact_id.in.(${contractIds.join(",")}))`)
+        const { data: ctData, error: ctError } = await supabase
+          .from("contract_transaction")
+          .select(`
+            contact_id,
+            group_id,
+            transaction_id,
+            transaction:transaction_id(
+              id,
+              amount,
+              created_at,
+              accepted_at,
+              rejected_at,
+              from_account:from(name, currency),
+              to_account:to(name, currency)
+            )
+          `)
+          .or(orParts.join(","))
+        if (ctError) console.error("Error fetching contract transactions:", ctError)
+        // Only accepted payments count as contract payments
+        payments = (ctData || []).filter(
+          (ct: any) => ct.transaction?.accepted_at && !ct.transaction?.rejected_at
         )
-
-        setContracts(contractsWithTransactions)
-      } else {
-        setContracts(data || [])
       }
+
+      const groupIdOfContract = new Map<number, number>(data.map((c: any) => [c.id, c.group_id]))
+      const byGroup = new Map<number, ContractTransaction[]>()
+      const byContract = new Map<number, ContractTransaction[]>()
+      payments.forEach((ct: any) => {
+        const row: ContractTransaction = {
+          id: ct.transaction_id,
+          contact_id: ct.contact_id,
+          group_id: ct.group_id,
+          transaction_id: ct.transaction_id,
+          transaction: ct.transaction,
+        }
+        const gid = ct.group_id ?? (ct.contact_id != null ? groupIdOfContract.get(ct.contact_id) : undefined)
+        if (gid != null) {
+          if (!byGroup.has(gid)) byGroup.set(gid, [])
+          byGroup.get(gid)!.push(row)
+        }
+        if (ct.contact_id != null) {
+          if (!byContract.has(ct.contact_id)) byContract.set(ct.contact_id, [])
+          byContract.get(ct.contact_id)!.push(row)
+        }
+      })
+
+      setContracts(data.map((c: any) => ({ ...c, contract_transaction: byContract.get(c.id) || [] })))
+      setContractGroups(groups)
+      setGroupPayments(byGroup)
     } catch (error) {
       console.error("Error fetching contracts:", error)
     }
@@ -1484,6 +1524,9 @@ export default function ProjectPageClient({
                             </TableCell>
                             <TableCell className="max-w-[300px]">
                               <p className="line-clamp-2">{contract.description}</p>
+                              {!indent && (
+                                <p className="text-xs text-muted-foreground">{groupNameOf(contract.group_id)}</p>
+                              )}
                             </TableCell>
                             <TableCell className="text-right">
                               {contract.qty || "-"} {contract.unit || ""}
@@ -1517,6 +1560,50 @@ export default function ProjectPageClient({
                             </TableCell>
                           </TableRow>
                         )
+                      }
+
+                      const groupNameOf = (gid: number) =>
+                        contractGroups.find((g) => g.id === gid)?.name || `Խումբ #${gid}`
+                      const groupPaidOf = (gid: number) =>
+                        (groupPayments.get(gid) || []).reduce((s, ct) => s + (ct.transaction?.amount || 0), 0)
+
+                      // Contracts nested under their group, preserving group order of first appearance
+                      const renderGroupedContracts = (personContracts: Contract[]) => {
+                        const byGid: { gid: number; rows: Contract[] }[] = []
+                        const gidIndex = new Map<number, number>()
+                        personContracts.forEach((c) => {
+                          if (!gidIndex.has(c.group_id)) {
+                            gidIndex.set(c.group_id, byGid.length)
+                            byGid.push({ gid: c.group_id, rows: [] })
+                          }
+                          byGid[gidIndex.get(c.group_id)!].rows.push(c)
+                        })
+                        return byGid.map(({ gid, rows }) => {
+                          const gTotal = rows.reduce((s, c) => s + c.total, 0)
+                          const gPaid = groupPaidOf(gid)
+                          return (
+                            <Fragment key={`cg-${gid}`}>
+                              <TableRow className="bg-muted/30">
+                                <TableCell className="pl-8">
+                                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                    {groupNameOf(gid)}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-xs text-muted-foreground">
+                                  {rows.length} պայմանագիր
+                                </TableCell>
+                                <TableCell />
+                                <TableCell />
+                                <TableCell className="text-right text-sm font-medium">{formatCurrency(gTotal)}</TableCell>
+                                <TableCell className="text-right text-sm font-medium">
+                                  {gPaid > 0 ? formatCurrency(gPaid) : <span className="text-muted-foreground font-normal">-</span>}
+                                </TableCell>
+                                <TableCell colSpan={3} />
+                              </TableRow>
+                              {rows.map((contract) => renderContractRow(contract, true))}
+                            </Fragment>
+                          )
+                        })
                       }
 
                       if (!groupContractsByPerson) {
@@ -1553,10 +1640,10 @@ export default function ProjectPageClient({
                         const isExpanded = expandedContractGroups.has(group.key)
                         const unlinked = unlinkedByKey.get(group.key)
                         const groupTotal = group.contracts.reduce((s, c) => s + c.total, 0)
-                        const groupPaid = group.contracts.reduce(
-                          (s, c) => s + (c.contract_transaction || []).reduce((ss, ct) => ss + (ct.transaction?.amount || 0), 0),
-                          0
-                        ) + (unlinked?.total || 0)
+                        // Paid rolls up from contract groups (covers group-linked payments too)
+                        const personGroupIds = Array.from(new Set(group.contracts.map((c) => c.group_id)))
+                        const groupPaid =
+                          personGroupIds.reduce((s, gid) => s + groupPaidOf(gid), 0) + (unlinked?.total || 0)
                         return (
                           <Fragment key={group.key}>
                             <TableRow
@@ -1599,7 +1686,7 @@ export default function ProjectPageClient({
                               </TableCell>
                               <TableCell colSpan={3} />
                             </TableRow>
-                            {isExpanded && group.contracts.map((contract) => renderContractRow(contract, true))}
+                            {isExpanded && renderGroupedContracts(group.contracts)}
                             {isExpanded && unlinked && (
                               <TableRow key={`${group.key}-unlinked`} className="text-muted-foreground">
                                 <TableCell className="pl-10">
@@ -2032,7 +2119,9 @@ export default function ProjectPageClient({
           open={isEditContractDrawerOpen}
           onOpenChange={setIsEditContractDrawerOpen}
           contract={selectedContract}
-          personContracts={contracts.filter((c) => c.person_id === selectedContract.person_id)}
+          group={contractGroups.find((g) => g.id === selectedContract.group_id) || null}
+          groupContracts={contracts.filter((c) => c.group_id === selectedContract.group_id)}
+          groupPaymentRows={groupPayments.get(selectedContract.group_id) || []}
           staff={staff}
           onSuccess={fetchContracts}
         />
@@ -2118,9 +2207,35 @@ function CreateContractDrawer({
   const [endDate, setEndDate] = useState("")
   const [lines, setLines] = useState<ContractLine[]>([emptyContractLine()])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [personGroups, setPersonGroups] = useState<ContractGroup[]>([])
+  // "new" = create a new group; otherwise an existing group id as string
+  const [groupChoice, setGroupChoice] = useState("")
+  const [newGroupName, setNewGroupName] = useState("")
 
   const supabase = createClient()
   const { toast } = useToast()
+
+  // Groups belong to (project, person) — refresh the list when the person changes
+  useEffect(() => {
+    if (!personId) {
+      setPersonGroups([])
+      setGroupChoice("")
+      return
+    }
+    const fetchGroups = async () => {
+      const { data } = await supabase
+        .from("contract_group")
+        .select("*")
+        .eq("project_id", parseInt(projectId))
+        .eq("person_id", parseInt(personId))
+        .order("created_at")
+      const groups = (data || []) as ContractGroup[]
+      setPersonGroups(groups)
+      setGroupChoice(groups.length === 0 ? "new" : "")
+    }
+    fetchGroups()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personId])
 
   const updateLine = (index: number, field: keyof ContractLine, value: string) => {
     setLines((prev) => {
@@ -2144,11 +2259,22 @@ function CreateContractDrawer({
     setStartDate("")
     setEndDate("")
     setLines([emptyContractLine()])
+    setPersonGroups([])
+    setGroupChoice("")
+    setNewGroupName("")
   }
 
   const handleSubmit = async () => {
     if (!personId) {
       toast({ title: "Սխալ", description: "Խնդրում ենք ընտրել աշխատակցին", variant: "destructive" })
+      return
+    }
+    if (!groupChoice) {
+      toast({ title: "Սխալ", description: "Խնդրում ենք ընտրել պայմանագրի խումբը", variant: "destructive" })
+      return
+    }
+    if (groupChoice === "new" && !newGroupName.trim()) {
+      toast({ title: "Սխալ", description: "Խնդրում ենք լրացնել խմբի անունը", variant: "destructive" })
       return
     }
 
@@ -2173,9 +2299,28 @@ function CreateContractDrawer({
     setIsSubmitting(true)
 
     try {
+      // Resolve the contract group: reuse the selected one or create it now
+      let groupId: number
+      if (groupChoice === "new") {
+        const { data: newGroup, error: groupError } = await supabase
+          .from("contract_group")
+          .insert({
+            project_id: parseInt(projectId),
+            person_id: parseInt(personId),
+            name: newGroupName.trim(),
+          })
+          .select("id")
+          .single()
+        if (groupError || !newGroup) throw groupError || new Error("Group insert returned no row")
+        groupId = newGroup.id
+      } else {
+        groupId = parseInt(groupChoice)
+      }
+
       const payload = filledLines.map((l) => ({
         project_id: parseInt(projectId),
         person_id: parseInt(personId),
+        group_id: groupId,
         description: l.description.trim(),
         price: l.price ? parseFormattedNumber(l.price) : null,
         unit: l.unit || null,
@@ -2244,6 +2389,32 @@ function CreateContractDrawer({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="contract-group">
+                Պայմանագրի խումբ <span className="text-destructive">*</span>
+              </Label>
+              <Select value={groupChoice} onValueChange={setGroupChoice} disabled={!personId}>
+                <SelectTrigger id="contract-group">
+                  <SelectValue placeholder={personId ? "Ընտրել խումբը" : "Նախ ընտրեք աշխատակցին"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {personGroups.map((g) => (
+                    <SelectItem key={g.id} value={g.id.toString()}>
+                      {g.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="new">+ Նոր խումբ</SelectItem>
+                </SelectContent>
+              </Select>
+              {groupChoice === "new" && (
+                <Input
+                  placeholder="Խմբի անունը"
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                />
+              )}
             </div>
 
             <div className="space-y-2">
@@ -2400,14 +2571,18 @@ function EditContractDrawer({
   open,
   onOpenChange,
   contract,
-  personContracts,
+  group,
+  groupContracts,
+  groupPaymentRows,
   staff,
   onSuccess,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   contract: Contract
-  personContracts: Contract[]
+  group: ContractGroup | null
+  groupContracts: Contract[]
+  groupPaymentRows: ContractTransaction[]
   staff: Person[]
   onSuccess: () => void
 }) {
@@ -2419,6 +2594,7 @@ function EditContractDrawer({
   const [endDate, setEndDate] = useState(
     contract.end ? new Date(contract.end).toISOString().split("T")[0] : ""
   )
+  const [groupName, setGroupName] = useState("")
   const [lines, setLines] = useState<EditContractLine[]>([])
   const [removedIds, setRemovedIds] = useState<number[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -2426,17 +2602,18 @@ function EditContractDrawer({
   const supabase = createClient()
   const { toast } = useToast()
 
-  // The whole service list of this person is edited at once; shared fields
-  // (person, status, dates) initialize from the clicked contract and apply to
-  // every line on save
+  // The whole service list of this contract group is edited at once; shared
+  // fields (person, status, dates, group name) initialize from the clicked
+  // contract's group and apply to every line on save
   useEffect(() => {
     if (!open) return
     setPersonId(contract.person_id.toString())
     setStatus(contract.status)
     setStartDate(contract.start ? new Date(contract.start).toISOString().split("T")[0] : "")
     setEndDate(contract.end ? new Date(contract.end).toISOString().split("T")[0] : "")
+    setGroupName(group?.name || "")
     setLines(
-      personContracts.map((c) => ({
+      groupContracts.map((c) => ({
         contractId: c.id,
         description: c.description,
         qty: c.qty ? handleNumberInput(c.qty.toString()) : "",
@@ -2447,7 +2624,7 @@ function EditContractDrawer({
       }))
     )
     setRemovedIds([])
-    // personContracts comes from the same fetch as contract — re-init on open is enough
+    // groupContracts comes from the same fetch as contract — re-init on open is enough
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contract, open])
 
@@ -2496,6 +2673,15 @@ function EditContractDrawer({
     setIsSubmitting(true)
 
     try {
+      // Group name / person live on the group row
+      if (group && (groupName.trim() !== group.name || parseInt(personId) !== group.person_id)) {
+        const { error } = await supabase
+          .from("contract_group")
+          .update({ name: groupName.trim() || group.name, person_id: parseInt(personId) })
+          .eq("id", group.id)
+        if (error) throw error
+      }
+
       const shared = {
         person_id: parseInt(personId),
         status,
@@ -2525,7 +2711,12 @@ function EditContractDrawer({
 
       const inserts = kept
         .filter((l) => !l.contractId)
-        .map((line) => ({ ...shared, ...lineFields(line), project_id: contract.project_id }))
+        .map((line) => ({
+          ...shared,
+          ...lineFields(line),
+          project_id: contract.project_id,
+          group_id: contract.group_id,
+        }))
       if (inserts.length > 0) {
         const { error } = await supabase.from("contract").insert(inserts)
         if (error) throw error
@@ -2551,14 +2742,26 @@ function EditContractDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="overflow-y-auto sm:max-w-[70vw]">
         <SheetHeader>
-          <SheetTitle>Խմբագրել պայմանագրերը</SheetTitle>
+          <SheetTitle>Խմբագրել պայմանագրերի խումբը</SheetTitle>
           <SheetDescription>
-            Աշխատակցի ծառայությունների ամբողջ ցանկը․ յուրաքանչյուր տողն առանձին պայմանագիր է
+            Խմբի ծառայությունների ցանկը․ յուրաքանչյուր տողն առանձին պայմանագիր է
           </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-4 py-6">
           <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="group-name">
+                Խմբի անունը <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="group-name"
+                placeholder="Խմբի անունը"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+              />
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="person">
                 Աշխատակից <span className="text-destructive">*</span>
@@ -2713,12 +2916,12 @@ function EditContractDrawer({
             </div>
           </div>
 
-          {/* Contract Transactions Section — all payments across the person's contracts */}
+          {/* Contract Transactions Section — all payments linked to this group */}
           {(() => {
-            const allTransactions = personContracts.flatMap((c) => c.contract_transaction || [])
+            const allTransactions = groupPaymentRows
             if (allTransactions.length === 0) return null
             const paidTotal = allTransactions.reduce((sum, ct) => sum + (ct.transaction?.amount || 0), 0)
-            const contractsTotal = personContracts.reduce((sum, c) => sum + c.total, 0)
+            const contractsTotal = groupContracts.reduce((sum, c) => sum + c.total, 0)
             return (
               <div className="space-y-2 pt-4 border-t">
                 <Label>Գործարքներ ({allTransactions.length})</Label>

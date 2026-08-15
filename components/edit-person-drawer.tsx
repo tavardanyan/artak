@@ -96,6 +96,10 @@ interface Transaction {
       id: number
       description: string | null
     } | null
+    contract_group: {
+      id: number
+      name: string
+    } | null
   }>
 }
 
@@ -270,7 +274,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
           from_account:from(name, currency),
           to_account:to(name, currency),
           project:project_id(id, name),
-          contract_transaction(contract:contact_id(id, description))
+          contract_transaction(contract:contact_id(id, description), contract_group:group_id(id, name))
         `)
         .or(`from.eq.${person.account_id},to.eq.${person.account_id}`)
         .order("created_at", { ascending: false })
@@ -779,6 +783,9 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
                             const linkedContract = (transaction.contract_transaction || [])
                               .map((ct) => ct.contract)
                               .find(Boolean)
+                            const linkedGroup = (transaction.contract_transaction || [])
+                              .map((ct) => ct.contract_group)
+                              .find(Boolean)
                             return (
                               <div
                                 key={transaction.id}
@@ -807,14 +814,19 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
                                 <p className="text-xs text-muted-foreground">
                                   {transaction.from_account.name} → {transaction.to_account.name}
                                 </p>
-                                {(transaction.project || linkedContract) && (
+                                {(transaction.project || linkedContract || linkedGroup) && (
                                   <div className="flex flex-wrap gap-1 pt-0.5">
                                     {transaction.project && (
                                       <Badge variant="outline" className="text-xs max-w-full">
                                         <span className="truncate">{transaction.project.name}</span>
                                       </Badge>
                                     )}
-                                    {linkedContract && (
+                                    {linkedGroup && (
+                                      <Badge variant="secondary" className="text-xs max-w-full">
+                                        <span className="truncate">{linkedGroup.name}</span>
+                                      </Badge>
+                                    )}
+                                    {!linkedGroup && linkedContract && (
                                       <Badge variant="secondary" className="text-xs max-w-full">
                                         <span className="truncate">
                                           Պայմ. №{linkedContract.id}

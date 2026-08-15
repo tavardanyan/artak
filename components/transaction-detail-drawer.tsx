@@ -62,6 +62,7 @@ interface Transaction {
   to_account?: { name: string; type: string; currency: string }
   project?: { id: number; name: string; code: string } | null
   contracts?: ContractLink[]
+  contract_groups?: { id: number; name: string }[]
   transfer?: {
     id: number
     created_at: string
@@ -126,7 +127,8 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
           contract_transaction(
             contract:contract!contract_transaction_contact_id_fkey(
               id, description, price, qty, unit, total, status, start, "end", person_id
-            )
+            ),
+            contract_group:contract_group!contract_transaction_group_id_fkey(id, name)
           )
         `)
         .eq("id", transactionId)
@@ -134,9 +136,12 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
 
       if (txError) throw txError
 
-      // Flatten contract_transaction[].contract into transaction.contracts[]
+      // Flatten contract_transaction[] links: per-contract (legacy) and per-group
       const contracts: ContractLink[] = ((txData as any)?.contract_transaction || [])
         .map((row: any) => row?.contract)
+        .filter(Boolean)
+      const contractGroupLinks: { id: number; name: string }[] = ((txData as any)?.contract_transaction || [])
+        .map((row: any) => row?.contract_group)
         .filter(Boolean)
 
       // Fetch transfer information if exists (where transaction_id matches)
@@ -175,6 +180,7 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
         ...txData,
         transfer: transferData,
         contracts,
+        contract_groups: contractGroupLinks,
       })
     } catch (error) {
       console.error("Error fetching transaction data:", error)
@@ -368,7 +374,9 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
             </Card>
 
             {/* Project + linked contracts */}
-            {(transaction.project || (transaction.contracts && transaction.contracts.length > 0)) && (
+            {(transaction.project ||
+              (transaction.contracts && transaction.contracts.length > 0) ||
+              (transaction.contract_groups && transaction.contract_groups.length > 0)) && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
@@ -403,8 +411,24 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
                     </div>
                   )}
 
-                  {transaction.contracts && transaction.contracts.length > 0 && (
+                  {transaction.contract_groups && transaction.contract_groups.length > 0 && (
                     <div className={transaction.project ? "pt-3 border-t" : ""}>
+                      <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                        <FileText className="h-3.5 w-3.5" />
+                        Կապված պայմանագրի խումբ
+                      </p>
+                      <div className="space-y-2">
+                        {transaction.contract_groups.map((g) => (
+                          <div key={g.id} className="rounded-md border p-2 text-sm">
+                            <p className="font-medium leading-tight">{g.name}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {transaction.contracts && transaction.contracts.length > 0 && (
+                    <div className={transaction.project || (transaction.contract_groups?.length ?? 0) > 0 ? "pt-3 border-t" : ""}>
                       <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
                         <FileText className="h-3.5 w-3.5" />
                         Կապված պայմանագրեր ({transaction.contracts.length})

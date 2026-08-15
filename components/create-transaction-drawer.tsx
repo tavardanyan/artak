@@ -36,18 +36,14 @@ interface Account {
   internal: boolean
 }
 
-interface Contract {
+interface ContractGroupOption {
   id: number
-  description: string
+  name: string
   person_id: number
-  status: string
-  total: number
   project_id: number
-  price: number | null
-  qty: number | null
-  unit: string | null
-  start: string | null
-  end: string | null
+  // Aggregated from the group's non-rejected contracts
+  total: number
+  contractIds: number[]
 }
 
 interface Person {
@@ -69,14 +65,14 @@ interface CreateTransactionDrawerProps {
 
 export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: CreateTransactionDrawerProps) {
   const [accounts, setAccounts] = useState<Account[]>([])
-  const [contracts, setContracts] = useState<Contract[]>([])
+  const [contractGroups, setContractGroups] = useState<ContractGroupOption[]>([])
   const [persons, setPersons] = useState<Person[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [transactionType, setTransactionType] = useState<"incoming" | "outgoing">("outgoing")
   const [fromAccount, setFromAccount] = useState<string>("")
   const [toAccount, setToAccount] = useState<string>("")
   const [selectedProject, setSelectedProject] = useState<string>("")
-  const [selectedContract, setSelectedContract] = useState<string>("")
+  const [selectedGroup, setSelectedGroup] = useState<string>("")
   const [amount, setAmount] = useState<string>("")
   const [note, setNote] = useState<string>("")
   const [createdAt, setCreatedAt] = useState<string>("")
@@ -152,13 +148,12 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
     }
   }
 
-  const fetchContracts = async (personId: number, projectId?: number) => {
+  const fetchContractGroups = async (personId: number, projectId?: number) => {
     try {
       let query = supabase
-        .from("contract")
-        .select("id, description, person_id, status, total, project_id, price, qty, unit, start, end")
+        .from("contract_group")
+        .select("*")
         .eq("person_id", personId)
-        .eq("status", "in progress")
 
       // Filter by project if selected
       if (projectId) {
@@ -166,14 +161,34 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       }
 
       const { data, error } = await query.order("created_at", { ascending: false })
-
       if (error) throw error
-      setContracts(data || [])
+
+      const groupRows = data || []
+      let options: ContractGroupOption[] = []
+      if (groupRows.length > 0) {
+        const { data: contractRows } = await supabase
+          .from("contract")
+          .select("id, total, status, group_id")
+          .in("group_id", groupRows.map((g: any) => g.id))
+          .neq("status", "rejected")
+        options = groupRows.map((g: any) => {
+          const cs = (contractRows || []).filter((c: any) => c.group_id === g.id)
+          return {
+            id: g.id,
+            name: g.name,
+            person_id: g.person_id,
+            project_id: g.project_id,
+            total: cs.reduce((s: number, c: any) => s + (c.total || 0), 0),
+            contractIds: cs.map((c: any) => c.id),
+          }
+        })
+      }
+      setContractGroups(options)
     } catch (error) {
-      console.error("Error fetching contracts:", error)
+      console.error("Error fetching contract groups:", error)
       toast({
         title: "Սխալ",
-        description: "Չհաջողվեց բեռնել պայմանագրերի ցանկը",
+        description: "Չհաջողվեց բեռնել պայմանագրերի խմբերը",
         variant: "destructive",
       })
     }
@@ -221,16 +236,20 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
     }
   }
 
-  const fetchContractTransactions = async (contractId: number) => {
+  const fetchGroupTransactions = async (group: ContractGroupOption) => {
     try {
-      // Contracts are linked via contract_transaction table
+      // Payments link to the group directly, or (legacy) to one of its contracts
+      const orParts = [`group_id.eq.${group.id}`]
+      if (group.contractIds.length > 0) {
+        orParts.push(`and(group_id.is.null,contact_id.in.(${group.contractIds.join(",")}))`)
+      }
       const { data, error } = await supabase
         .from("contract_transaction")
         .select("transaction:transaction_id(amount, accepted_at, rejected_at)")
-        .eq("contact_id", contractId)
+        .or(orParts.join(","))
 
       if (error) {
-        console.error("Error fetching contract transactions:", error)
+        console.error("Error fetching group transactions:", error)
         setContractTransactionsTotal(0)
         return
       }
@@ -256,7 +275,7 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
     }
   }, [fromAccount])
 
-  // Check if selected to-account has an associated person and fetch contracts
+  // Check if selected to-account has an associated person and fetch contract groups
   useEffect(() => {
     if (toAccount) {
       // Find person who has this account_id
@@ -264,42 +283,44 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       if (person) {
         setShowContractSelect(true)
         const projectId = selectedProject && selectedProject !== "none" ? parseInt(selectedProject) : undefined
-        fetchContracts(person.id, projectId)
+        fetchContractGroups(person.id, projectId)
         fetchToAccountBalance(parseInt(toAccount))
       } else {
         setShowContractSelect(false)
-        setContracts([])
-        setSelectedContract("")
+        setContractGroups([])
+        setSelectedGroup("")
         setToAccountBalance(null)
       }
     } else {
       setShowContractSelect(false)
-      setContracts([])
-      setSelectedContract("")
+      setContractGroups([])
+      setSelectedGroup("")
       setToAccountBalance(null)
     }
   }, [toAccount, persons, selectedProject])
 
-  // Fetch contract transactions when contract is selected
+  // Fetch payment totals when a contract group is selected
   useEffect(() => {
-    if (selectedContract && selectedContract !== "none") {
-      fetchContractTransactions(parseInt(selectedContract))
+    const group = contractGroups.find((g) => g.id.toString() === selectedGroup)
+    if (group) {
+      fetchGroupTransactions(group)
     } else {
       setContractTransactionsTotal(0)
     }
-  }, [selectedContract])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGroup, contractGroups])
 
   const resetForm = () => {
     setTransactionType("outgoing")
     setFromAccount("")
     setToAccount("")
     setSelectedProject("")
-    setSelectedContract("")
+    setSelectedGroup("")
     setAmount("")
     setNote("")
     setCreatedAt("")
     setShowContractSelect(false)
-    setContracts([])
+    setContractGroups([])
   }
 
   const handleSubmit = async () => {
@@ -326,6 +347,17 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       toast({
         title: "Սխալ",
         description: "Անձին վճարելիս պարտադիր է ընտրել նախագիծը",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Paying a person: the contract group must be chosen explicitly
+    // («Առանց պայմանագրի» is an explicit choice, not a default)
+    if (showContractSelect && !selectedGroup) {
+      toast({
+        title: "Սխալ",
+        description: "Խնդրում ենք ընտրել պայմանագրի խումբը կամ «Առանց պայմանագրի»",
         variant: "destructive",
       })
       return
@@ -362,12 +394,12 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
         project_id: selectedProject === "none" ? null : parseInt(selectedProject),
       }
 
-      // A contract-linked payment always belongs to the contract's project,
+      // A group-linked payment always belongs to the group's project,
       // otherwise project expense and contract totals drift apart
-      if (selectedContract && selectedContract !== "none" && showContractSelect) {
-        const linkedContract = contracts.find(c => c.id.toString() === selectedContract)
-        if (linkedContract?.project_id) {
-          transactionPayload.project_id = linkedContract.project_id
+      if (selectedGroup && selectedGroup !== "none" && showContractSelect) {
+        const linkedGroup = contractGroups.find(g => g.id.toString() === selectedGroup)
+        if (linkedGroup?.project_id) {
+          transactionPayload.project_id = linkedGroup.project_id
         }
       }
 
@@ -384,12 +416,12 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
 
       if (transactionError) throw transactionError
 
-      // If contract is selected, create contract_transaction record
-      if (selectedContract && selectedContract !== "none" && showContractSelect) {
+      // If a contract group is selected, link the payment to it
+      if (selectedGroup && selectedGroup !== "none" && showContractSelect) {
         const { error: contractTransactionError } = await supabase
           .from("contract_transaction")
           .insert({
-            contact_id: parseInt(selectedContract),
+            group_id: parseInt(selectedGroup),
             transaction_id: transactionData.id,
           })
 
@@ -415,12 +447,12 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
     }
   }
 
-  const selectedContractData = contracts.find(c => c.id.toString() === selectedContract)
+  const selectedGroupData = contractGroups.find(g => g.id.toString() === selectedGroup)
   const amountNum = parseFormattedNumber(amount)
   const projectedToBalance = toAccountBalance != null ? toAccountBalance + amountNum : null
   const projectedFromBalance = fromAccountBalance != null ? fromAccountBalance - amountNum : null
-  const projectedContractBalance = selectedContractData
-    ? selectedContractData.total - (contractTransactionsTotal + amountNum)
+  const projectedContractBalance = selectedGroupData
+    ? selectedGroupData.total - (contractTransactionsTotal + amountNum)
     : null
 
   return (
@@ -578,35 +610,39 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
             </div>
           )}
 
-          {/* Contract Selection - shown only if to-account has person_id (optional) */}
+          {/* Contract group selection - shown only if to-account has person_id (required) */}
           {showContractSelect && (
             <div className="space-y-2">
-              <Label>Պայմանագիր <span className="text-muted-foreground text-xs">(ոչ պարտադիր)</span></Label>
-              <Select value={selectedContract || "none"} onValueChange={setSelectedContract}>
+              <Label>Պայմանագրի խումբ <span className="text-destructive">*</span></Label>
+              <Select value={selectedGroup} onValueChange={setSelectedGroup}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Առանց պայմանագրի" />
+                  <SelectValue placeholder="Ընտրել խումբը" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Առանց պայմանագրի</SelectItem>
-                  {contracts.map((contract) => (
-                    <SelectItem key={contract.id} value={contract.id.toString()}>
-                      {contract.description.substring(0, 50)}
-                      {contract.description.length > 50 ? "..." : ""}
+                  {contractGroups.map((group) => (
+                    <SelectItem key={group.id} value={group.id.toString()}>
+                      {group.name} — {group.total.toLocaleString()} ֏
                     </SelectItem>
                   ))}
+                  <SelectItem value="none">Առանց պայմանագրի</SelectItem>
                 </SelectContent>
               </Select>
+              {contractGroups.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Այս անձի համար պայմանագրի խմբեր չկան ընտրված նախագծում
+                </p>
+              )}
             </div>
           )}
 
-          {/* Contract Details - shown when contract is selected */}
-          {selectedContractData && (
+          {/* Group details - shown when a contract group is selected */}
+          {selectedGroupData && (
             <div className="p-4 bg-accent rounded-lg space-y-3">
-              <p className="font-semibold">Պայմանագրի մանրամասներ</p>
+              <p className="font-semibold">{selectedGroupData.name} — խմբի մանրամասներ</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-muted-foreground">Ընդհանուր գումար</p>
-                  <p className="font-medium">{selectedContractData.total.toLocaleString()} ֏</p>
+                  <p className="font-medium">{selectedGroupData.total.toLocaleString()} ֏</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Վճարված (ընդունված)</p>
@@ -615,15 +651,13 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
                 <div>
                   <p className="text-muted-foreground">Մնացորդ</p>
                   <p className="font-medium text-orange-600">
-                    {(selectedContractData.total - contractTransactionsTotal).toLocaleString()} ֏
+                    {(selectedGroupData.total - contractTransactionsTotal).toLocaleString()} ֏
                   </p>
                 </div>
-                {selectedContractData.qty && selectedContractData.unit && (
-                  <div>
-                    <p className="text-muted-foreground">Քանակ</p>
-                    <p className="font-medium">{selectedContractData.qty} {selectedContractData.unit}</p>
-                  </div>
-                )}
+                <div>
+                  <p className="text-muted-foreground">Պայմանագրեր</p>
+                  <p className="font-medium">{selectedGroupData.contractIds.length}</p>
+                </div>
               </div>
             </div>
           )}
@@ -682,15 +716,15 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
                 )}
               </div>
 
-              {/* Contract Balance Projection */}
-              {selectedContractData && projectedContractBalance != null && (
+              {/* Group Balance Projection */}
+              {selectedGroupData && projectedContractBalance != null && (
                 <div className="p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1">Պայմանագրի մնացորդը վճարումից հետո</p>
+                  <p className="text-sm text-muted-foreground mb-1">Խմբի մնացորդը վճարումից հետո</p>
                   <p className={`text-2xl font-bold ${projectedContractBalance >= 0 ? 'text-orange-600' : 'text-green-600'}`}>
                     {projectedContractBalance.toLocaleString()} ֏
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {selectedContractData.total.toLocaleString()} - ({contractTransactionsTotal.toLocaleString()} + {amountNum.toLocaleString()}) = {projectedContractBalance.toLocaleString()}
+                    {selectedGroupData.total.toLocaleString()} - ({contractTransactionsTotal.toLocaleString()} + {amountNum.toLocaleString()}) = {projectedContractBalance.toLocaleString()}
                   </p>
                 </div>
               )}
