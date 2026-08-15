@@ -5,6 +5,8 @@ const PUBLIC_PATHS = [
   '/login',
   '/auth/callback',
   '/auth/forgot-password',
+  // Telegram webhook authenticates itself via its secret token header
+  '/api/telegram',
 ]
 
 export async function updateSession(request: NextRequest) {
