@@ -50,6 +50,7 @@ import {
   ChevronRight,
   ChevronDown,
   Trash2,
+  Banknote,
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
@@ -78,6 +79,7 @@ import { TaskDrawer } from "@/components/task-drawer"
 import { EditProjectDrawer } from "@/components/edit-project-drawer"
 import { PartnerEditDrawer } from "@/components/partner-edit-drawer"
 import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
+import { CreateTransactionDrawer } from "@/components/create-transaction-drawer"
 
 interface Project {
   id: number
@@ -310,6 +312,8 @@ export default function ProjectPageClient({
   const [contracts, setContracts] = useState<Contract[]>([])
   const [contractGroups, setContractGroups] = useState<ContractGroup[]>([])
   const [groupPayments, setGroupPayments] = useState<Map<number, ContractTransaction[]>>(new Map())
+  const [payDrawerOpen, setPayDrawerOpen] = useState(false)
+  const [payInitialData, setPayInitialData] = useState<{ toAccountId: number; projectId: number; groupId: number } | null>(null)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [staff, setStaff] = useState<Person[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -706,6 +710,27 @@ export default function ProjectPageClient({
     } catch (error) {
       console.error("Error fetching contracts:", error)
     }
+  }
+
+  // Opens the transaction drawer prefilled to pay a contract group
+  const handlePayGroup = async (groupId: number) => {
+    const group = contractGroups.find((g) => g.id === groupId)
+    if (!group) return
+    const { data: personRow } = await supabase
+      .from("person")
+      .select("account_id")
+      .eq("id", group.person_id)
+      .single()
+    if (!personRow?.account_id) {
+      toast({
+        title: "Սխալ",
+        description: "Աշխատակիցը կապված հաշիվ չունի, վճարումը հնարավոր չէ",
+        variant: "destructive",
+      })
+      return
+    }
+    setPayInitialData({ toAccountId: personRow.account_id, projectId: group.project_id, groupId: group.id })
+    setPayDrawerOpen(true)
   }
 
   const fetchUnlinkedStaffPayments = async () => {
@@ -1600,7 +1625,20 @@ export default function ProjectPageClient({
                                 <TableCell className="text-right text-sm font-medium">
                                   {gPaid > 0 ? formatCurrency(gPaid) : <span className="text-muted-foreground font-normal">-</span>}
                                 </TableCell>
-                                <TableCell colSpan={3} />
+                                <TableCell colSpan={3} className="text-right">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handlePayGroup(gid)
+                                    }}
+                                  >
+                                    <Banknote className="h-3.5 w-3.5 mr-1" />
+                                    Վճարել
+                                  </Button>
+                                </TableCell>
                               </TableRow>
                               {rows.map((contract) => renderContractRow(contract, true))}
                             </Fragment>
@@ -2126,6 +2164,19 @@ export default function ProjectPageClient({
           groupPaymentRows={groupPayments.get(selectedContract.group_id) || []}
           staff={staff}
           onSuccess={fetchContracts}
+        />
+      )}
+
+      {/* Pay a contract group — transaction drawer prefilled */}
+      {payInitialData && (
+        <CreateTransactionDrawer
+          open={payDrawerOpen}
+          onOpenChange={setPayDrawerOpen}
+          initialData={payInitialData}
+          onSuccess={() => {
+            fetchContracts()
+            fetchTransactions()
+          }}
         />
       )}
 

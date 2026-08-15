@@ -61,9 +61,15 @@ interface CreateTransactionDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess?: (transactionId?: number) => void
+  // Prefill for "pay" shortcuts (e.g. paying a contract group from a project)
+  initialData?: {
+    toAccountId?: number
+    projectId?: number
+    groupId?: number
+  }
 }
 
-export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: CreateTransactionDrawerProps) {
+export function CreateTransactionDrawer({ open, onOpenChange, onSuccess, initialData }: CreateTransactionDrawerProps) {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [contractGroups, setContractGroups] = useState<ContractGroupOption[]>([])
   const [persons, setPersons] = useState<Person[]>([])
@@ -95,7 +101,13 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess }: Creat
       fetchPersons()
       fetchProjects()
       resetForm()
+      if (initialData) {
+        if (initialData.toAccountId) setToAccount(initialData.toAccountId.toString())
+        if (initialData.projectId) setSelectedProject(initialData.projectId.toString())
+        if (initialData.groupId) setSelectedGroup(initialData.groupId.toString())
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const fetchAccounts = async () => {
