@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Users,
   Settings,
+  Bot,
   FileText,
   DollarSign,
   Calendar,
@@ -105,6 +106,11 @@ const mainNavItems = [
     title: "Հարկային ծառայություն",
     url: "/dashboard/taxservice",
     icon: Receipt,
+  },
+  {
+    title: "Գագո (AI)",
+    url: "/dashboard/assistant",
+    icon: Bot,
   },
   {
     title: "Օգտատերեր",
