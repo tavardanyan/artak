@@ -1394,7 +1394,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                        {warehouses.find(w => w.id === selectedTransfer.to)?.name || "Ընտրեք պահեստը"}
+                        <span className="truncate">
+                          {warehouses.find(w => w.id === selectedTransfer.to)?.name || "Ընտրեք պահեստը"}
+                        </span>
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
@@ -1675,7 +1677,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                       role="combobox"
                       className="w-full justify-between font-normal"
                     >
-                      {warehouses.find(w => w.id === fromWarehouse)?.name || "Ընտրեք պահեստը"}
+                      <span className="truncate">
+                        {warehouses.find(w => w.id === fromWarehouse)?.name || "Ընտրեք պահեստը"}
+                      </span>
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
@@ -1725,7 +1729,9 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                       role="combobox"
                       className="w-full justify-between font-normal"
                     >
-                      {toWarehouse ? warehouses.find(w => w.id === toWarehouse)?.name : "Ընտրեք պահեստը"}
+                      <span className="truncate">
+                        {toWarehouse ? warehouses.find(w => w.id === toWarehouse)?.name : "Ընտրեք պահեստը"}
+                      </span>
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>

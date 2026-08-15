@@ -319,7 +319,7 @@ export function SplitTransferModal({
 
         <div className="grid grid-cols-[1fr_auto_1fr] gap-4 py-4">
           {/* Left Side */}
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">{"\u0531\u057c\u0561\u057b\u056b\u0576 \u057f\u0565\u0572\u0561\u0583\u0578\u056d\u0578\u0582\u0574"}</h3>
               <Badge variant="outline">#{transferId}</Badge>
@@ -331,7 +331,9 @@ export function SplitTransferModal({
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                    {filteredWarehouses.find(w => w.id === leftWarehouse)?.name || "\u0538\u0576\u057f\u0580\u0565\u0584 \u057a\u0561\u0570\u0565\u057d\u057f\u0568"}
+                    <span className="truncate">
+                      {filteredWarehouses.find(w => w.id === leftWarehouse)?.name || "\u0538\u0576\u057f\u0580\u0565\u0584 \u057a\u0561\u0570\u0565\u057d\u057f\u0568"}
+                    </span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
@@ -429,7 +431,7 @@ export function SplitTransferModal({
           </div>
 
           {/* Right Side */}
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">{"\u0546\u0578\u0580 \u057f\u0565\u0572\u0561\u0583\u0578\u056d\u0578\u0582\u0574"}</h3>
               <Badge variant="secondary">{"\u0546\u0578\u0580"}</Badge>
@@ -441,7 +443,9 @@ export function SplitTransferModal({
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                    {filteredWarehouses.find(w => w.id === rightWarehouse)?.name || "\u0538\u0576\u057f\u0580\u0565\u0584 \u057a\u0561\u0570\u0565\u057d\u057f\u0568"}
+                    <span className="truncate">
+                      {filteredWarehouses.find(w => w.id === rightWarehouse)?.name || "\u0538\u0576\u057f\u0580\u0565\u0584 \u057a\u0561\u0570\u0565\u057d\u057f\u0568"}
+                    </span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>

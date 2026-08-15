@@ -189,7 +189,9 @@ export function XimichitModal({
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                  {selectedWarehouseId ? warehouses.find(w => w.id === selectedWarehouseId)?.name : "Ընտրեք պահեստ"}
+                  <span className="truncate">
+                    {selectedWarehouseId ? warehouses.find(w => w.id === selectedWarehouseId)?.name : "Ընտրեք պահեստ"}
+                  </span>
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
