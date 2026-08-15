@@ -26,7 +26,13 @@ const TELEGRAM_INSTRUCTIONS = `## Telegram mode
 interface ChatMessage {
   role: "user" | "assistant"
   content: string
+  at?: string
 }
+
+// Context window: at most 20 messages, and nothing older than 2 hours —
+// a new conversation after a pause starts with a clean slate
+const HISTORY_MAX_MESSAGES = 20
+const HISTORY_MAX_AGE_MS = 2 * 60 * 60 * 1000
 
 const tgApi = () => `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`
 
@@ -127,26 +133,37 @@ async function handleMessage(message: any) {
     return
   }
 
-  // Short rolling conversation history per chat
+  // Rolling conversation history per chat: recent + bounded
   const { data: histRow } = await supabase
     .from("telegram_chat")
     .select("messages")
     .eq("chat_id", chatId)
     .maybeSingle()
-  const history = ((histRow?.messages || []) as ChatMessage[]).slice(-10)
+  const cutoff = Date.now() - HISTORY_MAX_AGE_MS
+  const history = ((histRow?.messages || []) as ChatMessage[])
+    .filter((m) => m.at && new Date(m.at).getTime() > cutoff)
+    .slice(-HISTORY_MAX_MESSAGES)
 
   const agent = createAssistantAgent(supabase, { extraInstructions: TELEGRAM_INSTRUCTIONS })
   const result = await agent.generate({
-    messages: [...history, { role: "user", content: userText }],
+    messages: [
+      ...history.map(({ role, content }) => ({ role, content })),
+      { role: "user" as const, content: userText },
+    ],
   })
   const answer = result.text?.trim() || "Չհաջողվեց պատասխան ստանալ, խնդրում եմ փորձել նորից։"
 
   await sendText(chatId, answer)
 
+  const now = new Date().toISOString()
   await supabase.from("telegram_chat").upsert({
     chat_id: chatId,
-    messages: [...history, { role: "user", content: userText }, { role: "assistant", content: answer }].slice(-12),
-    updated_at: new Date().toISOString(),
+    messages: [
+      ...history,
+      { role: "user", content: userText, at: now },
+      { role: "assistant", content: answer, at: now },
+    ].slice(-HISTORY_MAX_MESSAGES),
+    updated_at: now,
   })
 }
 
