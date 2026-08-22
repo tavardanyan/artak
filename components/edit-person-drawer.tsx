@@ -36,6 +36,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from "@/lib/utils"
 import { fetchPersonPositions } from "@/lib/utils/positions"
 import { uuidv4 } from "@/lib/utils/uuid"
+import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
 
 interface Partner {
   id: number
@@ -76,6 +77,8 @@ interface Transaction {
   id: number
   amount: number
   created_at: string
+  accepted_at: string | null
+  rejected_at: string | null
   note: string | null
   from: number
   to: number
@@ -158,6 +161,12 @@ const getContractStatusBadge = (status: string) => {
   return <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
 }
 
+const getTransactionStatusBadge = (t: { accepted_at: string | null; rejected_at: string | null }) => {
+  if (t.rejected_at) return <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Մերժված</Badge>
+  if (t.accepted_at) return <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-700 border-green-600">Ընդունված</Badge>
+  return <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Սպասվող</Badge>
+}
+
 export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: EditPersonDrawerProps) {
   const [firstName, setFirstName] = useState(person.first_name)
   const [lastName, setLastName] = useState(person.last_lame || "")
@@ -186,6 +195,8 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewMime, setPreviewMime] = useState<string | null>(null)
+  const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null)
+  const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = useState(false)
 
   const supabase = createClient()
   const { toast } = useToast()
@@ -268,6 +279,8 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
           id,
           amount,
           created_at,
+          accepted_at,
+          rejected_at,
           note,
           from,
           to,
@@ -888,9 +901,13 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
                             return (
                               <div
                                 key={transaction.id}
-                                className="p-3 border rounded-md bg-muted/50 space-y-1"
+                                className="p-3 border rounded-md bg-muted/50 space-y-1 cursor-pointer hover:bg-accent transition-colors"
+                                onClick={() => {
+                                  setSelectedTransactionId(transaction.id)
+                                  setIsTransactionDrawerOpen(true)
+                                }}
                               >
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2">
                                     {isOutgoing ? (
                                       <ArrowUpRight className="h-4 w-4 text-red-500" />
@@ -905,6 +922,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
                                           : transaction.to_account.currency
                                       )}
                                     </span>
+                                    {getTransactionStatusBadge(transaction)}
                                   </div>
                                   <span className="text-xs text-muted-foreground">
                                     {formatDate(transaction.created_at)}
@@ -956,6 +974,18 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
         </div>
 
       </SheetContent>
+
+      {/* Transaction detail (with accept/reject) — refresh list on close */}
+      <TransactionDetailDrawer
+        open={isTransactionDrawerOpen}
+        onOpenChange={(o) => {
+          setIsTransactionDrawerOpen(o)
+          if (!o) fetchRelatedData()
+        }}
+        transactionId={selectedTransactionId}
+        accountId={person.account_id ?? undefined}
+        onUpdate={fetchRelatedData}
+      />
 
       {/* Document Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
