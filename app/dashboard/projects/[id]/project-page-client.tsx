@@ -1757,9 +1757,12 @@ export default function ProjectPageClient({
               {(contracts.length > 0 || unlinkedStaffPayments.length > 0) && (() => {
                 const totalAmount = contracts.reduce((sum, c) => sum + c.total, 0)
                 const unlinkedTotal = unlinkedStaffPayments.reduce((sum, up) => sum + up.total, 0)
-                const totalPaid = contracts.reduce((sum, c) => {
-                  return sum + (c.contract_transaction || []).reduce((s, ct) => s + (ct.transaction?.amount || 0), 0)
-                }, 0) + unlinkedTotal
+                // Paid rolls up from contract groups (covers group-linked payments;
+                // legacy per-contract links are already inside groupPayments)
+                const totalPaid = Array.from(groupPayments.values()).reduce(
+                  (sum, rows) => sum + rows.reduce((s, ct) => s + (ct.transaction?.amount || 0), 0),
+                  0
+                ) + unlinkedTotal
                 return (
                   <div className="flex justify-end items-center gap-8 pt-4 mt-4 border-t">
                     <div className="text-right">
