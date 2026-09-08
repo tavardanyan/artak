@@ -2349,11 +2349,12 @@ function CreateContractDrawer({
       toast({ title: "Սխալ", description: "Ավելացրեք նվազագույնը մեկ ծառայություն", variant: "destructive" })
       return
     }
-    const invalid = filledLines.find((l) => !l.description.trim() || parseFormattedNumber(l.total) <= 0)
+    // 0-dram contracts are allowed (e.g. placeholder work registered before pricing)
+    const invalid = filledLines.find((l) => !l.description.trim() || parseFormattedNumber(l.total) < 0)
     if (invalid) {
       toast({
         title: "Սխալ",
-        description: "Յուրաքանչյուր տող պետք է ունենա նկարագրություն և ընդհանուր գումար",
+        description: "Յուրաքանչյուր տող պետք է ունենա նկարագրություն, գումարը չի կարող բացասական լինել",
         variant: "destructive",
       })
       return
@@ -2723,11 +2724,12 @@ function EditContractDrawer({
     const kept = lines.filter(
       (l) => l.contractId || l.description.trim() || l.qty || l.price || l.total
     )
-    const invalid = kept.find((l) => !l.description.trim() || parseFormattedNumber(l.total) <= 0)
+    // 0-dram contracts are allowed (e.g. placeholder work registered before pricing)
+    const invalid = kept.find((l) => !l.description.trim() || parseFormattedNumber(l.total) < 0)
     if (invalid) {
       toast({
         title: "Սխալ",
-        description: "Յուրաքանչյուր տող պետք է ունենա նկարագրություն և ընդհանուր գումար",
+        description: "Յուրաքանչյուր տող պետք է ունենա նկարագրություն, գումարը չի կարող բացասական լինել",
         variant: "destructive",
       })
       return
