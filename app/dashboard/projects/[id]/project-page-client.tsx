@@ -1142,11 +1142,12 @@ export default function ProjectPageClient({
                 }
               })
             }
-            // Total actually paid via contract_transaction (regardless of contract.total)
+            // Total actually paid: group-linked payments (incl. legacy per-contract links)
             const totalPaid = hasContracts
-              ? contracts.reduce((sum, c) => {
-                  return sum + (c.contract_transaction || []).reduce((s, ct) => s + (ct.transaction?.amount || 0), 0)
-                }, 0)
+              ? Array.from(groupPayments.values()).reduce(
+                  (sum, rows) => sum + rows.reduce((s, ct) => s + (ct.transaction?.amount || 0), 0),
+                  0
+                )
               : initialDashboard.contracts_paid
 
             // Transactions: matches transactions table logic

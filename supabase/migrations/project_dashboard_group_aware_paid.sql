@@ -1,0 +1,14 @@
+-- contracts_paid must include group-linked payments (contract_transaction.group_id),
+-- not only legacy per-contract links (contact_id). The changed block inside
+-- get_project_dashboard (rest of the function is unchanged):
+--
+--   SELECT COALESCE(SUM(t.amount), 0) INTO v_contracts_paid
+--   FROM contract_transaction ct
+--   JOIN transaction t ON t.id = ct.transaction_id
+--   LEFT JOIN contract_group g ON g.id = ct.group_id
+--   LEFT JOIN contract c ON c.id = ct.contact_id
+--   WHERE t.accepted_at IS NOT NULL AND t.rejected_at IS NULL
+--     AND ((ct.group_id IS NOT NULL AND g.project_id = p_id)
+--       OR (ct.group_id IS NULL AND c.project_id = p_id AND c.status != 'rejected'));
+--
+-- Applied to the database as migration project_dashboard_group_aware_paid.
