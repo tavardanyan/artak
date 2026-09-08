@@ -1139,12 +1139,14 @@ export default function ProjectPageClient({
                 }
               })
             }
-            // Total actually paid: group-linked payments (incl. legacy per-contract links)
+            // Total actually paid: group-linked payments (incl. legacy per-contract
+            // links) plus project payments to persons without a contract
+            const unlinkedPaid = unlinkedStaffPayments.reduce((s, up) => s + up.total, 0)
             const totalPaid = hasContracts
               ? Array.from(groupPayments.values()).reduce(
                   (sum, rows) => sum + rows.reduce((s, ct) => s + (ct.transaction?.amount || 0), 0),
                   0
-                )
+                ) + unlinkedPaid
               : initialDashboard.contracts_paid
 
             // Transactions: matches transactions table logic
@@ -1198,6 +1200,12 @@ export default function ProjectPageClient({
                         <span className="font-medium">Փաստացի վճարված:</span>
                         <span className="font-bold text-green-600">{formatCurrency(totalPaid)}</span>
                       </div>
+                      {unlinkedPaid > 0 && (
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>որից առանց պայմ.՝</span>
+                          <span>{formatCurrency(unlinkedPaid)}</span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium">Մնում է վճարել:</span>
                         <span className={`font-bold ${(contractsByStatus.planned + contractsByStatus["in progress"] + contractsByStatus.done - totalPaid) > 0 ? "text-red-600" : "text-green-600"}`}>
