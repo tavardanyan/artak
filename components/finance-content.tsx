@@ -182,9 +182,11 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
         note: note || null,
       }
 
-      const { error } = await supabase
+      const { data: created, error } = await supabase
         .from("transaction")
         .insert([transactionData])
+        .select("id")
+        .single()
 
       if (error) throw error
 
@@ -203,6 +205,12 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
       // Refresh transactions and balance
       fetchTransactions()
       fetchBalance()
+
+      // Open the new transaction right away so it can be accepted/rejected
+      if (created?.id) {
+        setSelectedTransactionId(created.id)
+        setIsTransactionDrawerOpen(true)
+      }
     } catch (error) {
       console.error("Error creating transaction:", error)
       toast({

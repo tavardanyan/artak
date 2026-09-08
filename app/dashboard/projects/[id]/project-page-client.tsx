@@ -2177,9 +2177,14 @@ export default function ProjectPageClient({
           open={payDrawerOpen}
           onOpenChange={setPayDrawerOpen}
           initialData={payInitialData}
-          onSuccess={() => {
+          onSuccess={(transactionId) => {
             fetchContracts()
             fetchTransactions()
+            // Open the new transaction right away so it can be accepted/rejected
+            if (transactionId) {
+              setSelectedTransactionId(transactionId)
+              setIsTransactionDrawerOpen(true)
+            }
           }}
         />
       )}

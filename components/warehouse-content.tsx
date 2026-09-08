@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils"
 import { SplitTransferModal } from "@/components/split-transfer-modal"
 import { XimichitModal } from "@/components/ximichit-modal"
 import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
+import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
 import { TransferStatusActions } from "@/components/transfer-status-actions"
 
 interface Transfer {
@@ -164,6 +165,8 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [historyTransferId, setHistoryTransferId] = useState<number | null>(null)
   const [isHistoryTransferOpen, setIsHistoryTransferOpen] = useState(false)
   const [isCreateTransferDrawerOpen, setIsCreateTransferDrawerOpen] = useState(false)
+  const [createdTransactionId, setCreatedTransactionId] = useState<number | null>(null)
+  const [isTransactionDetailOpen, setIsTransactionDetailOpen] = useState(false)
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
   const [isXimichitModalOpen, setIsXimichitModalOpen] = useState(false)
   const [fromWarehouseStock, setFromWarehouseStock] = useState<Record<number, number>>({})
@@ -756,6 +759,12 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       setToAccount(null)
       setSelectedItemIds(new Set())
       setIsCreateTransferDrawerOpen(false)
+
+      // Open the new transaction right away so it can be accepted/rejected
+      if (transactionId) {
+        setCreatedTransactionId(transactionId)
+        setIsTransactionDetailOpen(true)
+      }
 
       // Refresh transfers list
       fetchTransfers()
@@ -2039,6 +2048,12 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       )}
 
       {/* Transfer detail opened from item movement history */}
+      <TransactionDetailDrawer
+        open={isTransactionDetailOpen}
+        onOpenChange={setIsTransactionDetailOpen}
+        transactionId={createdTransactionId}
+      />
+
       <TransferDetailDrawer
         open={isHistoryTransferOpen}
         onOpenChange={setIsHistoryTransferOpen}
