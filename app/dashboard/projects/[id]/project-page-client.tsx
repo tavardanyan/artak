@@ -1625,7 +1625,7 @@ export default function ProjectPageClient({
                           const gPaid = groupPaidOf(gid)
                           return (
                             <Fragment key={`cg-${gid}`}>
-                              <TableRow className="bg-muted/30">
+                              <TableRow className="bg-muted/40 hover:bg-muted/70">
                                 <TableCell className="pl-8">
                                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                     {groupNameOf(gid)}
@@ -1702,7 +1702,7 @@ export default function ProjectPageClient({
                         return (
                           <Fragment key={group.key}>
                             <TableRow
-                              className="cursor-pointer bg-muted/50 hover:bg-accent"
+                              className="cursor-pointer bg-primary/10 hover:bg-primary/20"
                               onClick={() => {
                                 setExpandedContractGroups((prev) => {
                                   const next = new Set(prev)
