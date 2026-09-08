@@ -166,6 +166,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [isHistoryTransferOpen, setIsHistoryTransferOpen] = useState(false)
   const [isCreateTransferDrawerOpen, setIsCreateTransferDrawerOpen] = useState(false)
   const [createdTransactionId, setCreatedTransactionId] = useState<number | null>(null)
+  const [transferDate, setTransferDate] = useState<string>(new Date().toISOString().split("T")[0])
   const [isTransactionDetailOpen, setIsTransactionDetailOpen] = useState(false)
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
   const [isXimichitModalOpen, setIsXimichitModalOpen] = useState(false)
@@ -719,12 +720,16 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       }
 
       // Create transfer
+      // The chosen date becomes both the transfer date and its delivered date
+      const transferDateIso = transferDate ? new Date(transferDate).toISOString() : new Date().toISOString()
       const { data: transfer, error: transferError } = await supabase
         .from("transfer")
         .insert({
           from: fromWarehouse,
           to: toWarehouse,
           transaction_id: transactionId,
+          created_at: transferDateIso,
+          delivered_at: transferDateIso,
         })
         .select()
         .single()
@@ -753,6 +758,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       // Reset form
       setFromWarehouse(warehouseId)
       setToWarehouse(null)
+      setTransferDate(new Date().toISOString().split("T")[0])
       setNewTransferItems([{ itemName: "", itemId: null, unit: "", qty: "1", unitPrice: "", unitVat: "", isService: false }])
       setCreateTransaction(false)
       setFromAccount(null)
@@ -1668,6 +1674,19 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
           </SheetHeader>
 
           <div className="space-y-6 py-6">
+            {/* Transfer / delivery date */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="transfer-date">Ամսաթիվ (առաքման)</Label>
+                <Input
+                  id="transfer-date"
+                  type="date"
+                  value={transferDate}
+                  onChange={(e) => setTransferDate(e.target.value)}
+                />
+              </div>
+            </div>
+
             {/* Warehouse Selection */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

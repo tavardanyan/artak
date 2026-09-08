@@ -203,23 +203,18 @@ function WarehousePageContent() {
         const transferData = JSON.parse(pendingTransfer)
         setInitialTransferData(transferData)
         sessionStorage.removeItem('pendingTransfer')
-
-        // If there's a warehouse ID in the URL, select it
-        const warehouseIdParam = searchParams.get('id')
-        if (warehouseIdParam) {
-          const warehouseId = parseInt(warehouseIdParam)
-          // The warehouse will be selected when warehouses are loaded
-        }
       } catch (error) {
         console.error('Error parsing pending transfer data:', error)
       }
     }
-  }, [])
+    // Re-run on navigation too — the user may already be on this page when
+    // starting a purchase from the sidebar
+  }, [searchParams])
 
   // Select warehouse from URL parameter when warehouses are loaded
   useEffect(() => {
     const warehouseIdParam = searchParams.get('id')
-    if (warehouseIdParam && warehouses.length > 0 && !selectedWarehouse) {
+    if (warehouseIdParam && warehouses.length > 0) {
       const warehouseId = parseInt(warehouseIdParam)
       const warehouse = warehouses.find(w => w.id === warehouseId)
       if (warehouse) {

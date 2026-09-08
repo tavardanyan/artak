@@ -52,6 +52,7 @@ import { Button } from "@/components/ui/button"
 import { useRouter, usePathname } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { CreateOrderDrawer } from "@/components/create-order-drawer"
+import { CreatePurchaseDrawer } from "@/components/create-purchase-drawer"
 import { CreateTransactionDrawer } from "@/components/create-transaction-drawer"
 import { CreateProjectDrawer } from "@/components/create-project-drawer"
 import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
@@ -141,6 +142,8 @@ export function AppSidebar() {
   const [createdTransactionId, setCreatedTransactionId] = React.useState<number | null>(null)
   const [isTransactionDetailOpen, setIsTransactionDetailOpen] = React.useState(false)
   const [isProjectDrawerOpen, setIsProjectDrawerOpen] = React.useState(false)
+  const [isPurchaseDrawerOpen, setIsPurchaseDrawerOpen] = React.useState(false)
+  const [purchasePrefill, setPurchasePrefill] = React.useState<{ warehouseId: number; accountId: number } | null>(null)
   const [activeProjects, setActiveProjects] = React.useState<Project[]>([])
   const [uncheckedCounts, setUncheckedCounts] = React.useState({ items: 0, invoices: 0, transfers: 0, draftTransfers: 0, problems: 0 })
 
@@ -199,16 +202,9 @@ export function AppSidebar() {
   }
 
   const handlePartnerSelected = (partnerId: number, warehouseId: number, accountId: number) => {
-    // Store the transfer data in sessionStorage to pass to the warehouse page
-    sessionStorage.setItem('pendingTransfer', JSON.stringify({
-      fromWarehouse: warehouseId,
-      toWarehouse: null,
-      createTransaction: true,
-      fromAccount: null,
-      toAccount: accountId,
-      openDrawer: true
-    }))
-    router.push(`/dashboard/warehouse?id=${warehouseId}`)
+    // Open the purchase drawer right here — no page navigation
+    setPurchasePrefill({ warehouseId, accountId })
+    setIsPurchaseDrawerOpen(true)
   }
 
   const handleProjectCreated = () => {
@@ -427,6 +423,15 @@ export function AppSidebar() {
         open={isOrderDrawerOpen}
         onOpenChange={setIsOrderDrawerOpen}
         onPartnerSelected={handlePartnerSelected}
+      />
+
+      {/* Purchase Creation Drawer — opens directly after supplier selection */}
+      <CreatePurchaseDrawer
+        open={isPurchaseDrawerOpen}
+        onOpenChange={setIsPurchaseDrawerOpen}
+        supplierWarehouseId={purchasePrefill?.warehouseId ?? null}
+        supplierAccountId={purchasePrefill?.accountId ?? null}
+        onSuccess={fetchUncheckedCounts}
       />
 
       {/* Transaction Creation Drawer */}
