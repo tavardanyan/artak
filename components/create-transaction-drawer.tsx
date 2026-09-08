@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { emitDataChanged } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-format"
 import {
@@ -462,6 +463,7 @@ export function CreateTransactionDrawer({ open, onOpenChange, onSuccess, initial
       })
 
       onOpenChange(false)
+      emitDataChanged()
       if (onSuccess) onSuccess(transactionData.id)
     } catch (error) {
       console.error("Error creating transaction:", error)

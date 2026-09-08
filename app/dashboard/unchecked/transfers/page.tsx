@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useDataRefresh } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -48,6 +49,8 @@ export default function UncheckedTransfersPage() {
 
   const { toast } = useToast()
   const supabase = createClient()
+
+  useDataRefresh(() => fetchTransfers())
 
   useEffect(() => {
     fetchDefaultWarehouse()

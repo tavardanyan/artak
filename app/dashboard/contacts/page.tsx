@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useDataRefresh } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -130,6 +131,8 @@ export default function ContactsPage() {
   const [groupByPartner, setGroupByPartner] = useState(true)
   const { toast } = useToast()
   const supabase = createClient()
+
+  useDataRefresh(() => fetchContacts())
 
   useEffect(() => {
     fetchContacts()

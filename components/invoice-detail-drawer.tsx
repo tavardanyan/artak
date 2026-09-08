@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { emitDataChanged } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import {
   Sheet,
@@ -288,6 +289,7 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
         })
         // Reload drawer data so the new transfer appears
         await fetchInvoiceDetail()
+        emitDataChanged()
       } else {
         toast({
           title: "Սխալ",

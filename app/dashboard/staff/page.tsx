@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useDataRefresh } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -107,6 +108,8 @@ export default function StaffPage() {
   const [viewMode, setViewMode] = useState<"cards" | "table">("table")
   const { toast } = useToast()
   const supabase = createClient()
+
+  useDataRefresh(() => fetchStaff())
 
   useEffect(() => {
     fetchStaff()

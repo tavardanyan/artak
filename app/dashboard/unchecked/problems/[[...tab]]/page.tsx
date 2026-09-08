@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useDataRefresh } from "@/hooks/use-data-refresh"
 import { useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent } from "@/components/ui/card"
@@ -79,6 +80,8 @@ export default function ProblemsPage() {
 
   const { toast } = useToast()
   const supabase = createClient()
+
+  useDataRefresh(() => fetchProblems())
 
   const activeTab: TabValue = TAB_VALUES.includes(params.tab?.[0] as TabValue)
     ? (params.tab![0] as TabValue)

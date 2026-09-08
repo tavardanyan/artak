@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useDataRefresh } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-format"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -75,6 +76,11 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
   const [isCreateTransactionDrawerOpen, setIsCreateTransactionDrawerOpen] = useState(false)
   const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = useState(false)
   const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null)
+
+  useDataRefresh(() => {
+    fetchTransactions()
+    fetchBalance()
+  })
   const [accounts, setAccounts] = useState<Account[]>([])
 
   // Create transaction state

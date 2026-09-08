@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { emitDataChanged } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
@@ -88,6 +89,7 @@ export function TransferStatusActions({
               : "Տեղափոխումը վերադարձվեց սպասման",
       })
       setConfirmAction(null)
+      emitDataChanged()
       onChanged()
     } catch (error: any) {
       console.error("Error updating transfer status:", error)

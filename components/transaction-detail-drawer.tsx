@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { emitDataChanged } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import { TransferStatusActions } from "@/components/transfer-status-actions"
 import {
@@ -213,6 +214,7 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
 
       onOpenChange(false)
       if (onUpdate) onUpdate()
+      emitDataChanged()
     } catch (error) {
       console.error("Error:", error)
       toast({
@@ -241,6 +243,7 @@ export function TransactionDetailDrawer({ open, onOpenChange, transactionId, acc
 
       onOpenChange(false)
       if (onUpdate) onUpdate()
+      emitDataChanged()
     } catch (error) {
       console.error("Error:", error)
       toast({

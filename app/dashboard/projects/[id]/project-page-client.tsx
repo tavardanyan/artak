@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, Fragment } from "react"
+import { useDataRefresh } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 
 export interface ProjectDashboardData {
@@ -313,6 +314,12 @@ export default function ProjectPageClient({
   const [contractGroups, setContractGroups] = useState<ContractGroup[]>([])
   const [groupPayments, setGroupPayments] = useState<Map<number, ContractTransaction[]>>(new Map())
   const [payDrawerOpen, setPayDrawerOpen] = useState(false)
+
+  useDataRefresh(() => {
+    fetchContracts()
+    fetchTransactions()
+    fetchUnlinkedStaffPayments()
+  })
   const [payInitialData, setPayInitialData] = useState<{ toAccountId: number; projectId: number; groupId: number } | null>(null)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [staff, setStaff] = useState<Person[]>([])

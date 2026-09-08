@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useDataRefresh } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-format"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -167,6 +168,11 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
   const [isCreateTransferDrawerOpen, setIsCreateTransferDrawerOpen] = useState(false)
   const [createdTransactionId, setCreatedTransactionId] = useState<number | null>(null)
   const [transferDate, setTransferDate] = useState<string>(new Date().toISOString().split("T")[0])
+
+  useDataRefresh(() => {
+    fetchTransfers()
+    fetchWarehouseItems()
+  })
   const [isTransactionDetailOpen, setIsTransactionDetailOpen] = useState(false)
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
   const [isXimichitModalOpen, setIsXimichitModalOpen] = useState(false)

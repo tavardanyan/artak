@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { emitDataChanged } from "@/hooks/use-data-refresh"
 import { createClient } from "@/lib/supabase/client"
 import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-format"
 import {
@@ -224,6 +225,7 @@ export function CreatePurchaseDrawer({
       })
 
       onOpenChange(false)
+      emitDataChanged()
       onSuccess?.()
 
       // Open the new transaction right away so it can be accepted/rejected

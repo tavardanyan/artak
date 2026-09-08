@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useDataRefresh } from "@/hooks/use-data-refresh"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -92,6 +93,8 @@ export default function PartnersPage() {
   const [accountCurrency, setAccountCurrency] = useState("amd")
 
   const supabase = createClient()
+
+  useDataRefresh(() => fetchPartners())
 
   // Fetch partners from Supabase
   const fetchPartners = async () => {

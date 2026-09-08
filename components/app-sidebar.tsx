@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useDataRefresh } from "@/hooks/use-data-refresh"
 import {
   LayoutDashboard,
   Users,
@@ -150,6 +151,8 @@ export function AppSidebar() {
     fetchActiveProjects()
     fetchUncheckedCounts()
   }, [])
+
+  useDataRefresh(() => fetchUncheckedCounts())
 
   const fetchUncheckedCounts = async () => {
     // Default destination warehouse — used to count "unchecked transfers".
