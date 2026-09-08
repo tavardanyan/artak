@@ -2283,9 +2283,15 @@ function CreateContractDrawer({
   const [lines, setLines] = useState<ContractLine[]>([emptyContractLine()])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [personGroups, setPersonGroups] = useState<ContractGroup[]>([])
-  // Past services of the selected person (across projects), newest first,
-  // deduped by description+unit — used as input suggestions with price memory
-  const [serviceHistory, setServiceHistory] = useState<{ description: string; price: number | null; unit: string | null }[]>([])
+  // Past services of ALL persons, newest first, deduped by person+service+unit —
+  // suggestions carry who did it, the last price and the last project
+  const [serviceHistory, setServiceHistory] = useState<{
+    description: string
+    price: number | null
+    unit: string | null
+    personName: string
+    projectName: string
+  }[]>([])
   const [openServicePicker, setOpenServicePicker] = useState<number | null>(null)
   // "new" = create a new group; otherwise an existing group id as string
   const [groupChoice, setGroupChoice] = useState("")
@@ -2294,12 +2300,41 @@ function CreateContractDrawer({
   const supabase = createClient()
   const { toast } = useToast()
 
+  // Service history across all persons — loaded when the drawer opens
+  useEffect(() => {
+    if (!open) return
+    const fetchServiceHistory = async () => {
+      const { data } = await supabase
+        .from("contract")
+        .select("description, price, unit, created_at, person:person_id(first_name, last_lame), project:project_id(name)")
+        .order("created_at", { ascending: false })
+        .limit(500)
+      const seen = new Set<string>()
+      const unique: { description: string; price: number | null; unit: string | null; personName: string; projectName: string }[] = []
+      for (const c of (data || []) as any[]) {
+        const personName = `${c.person?.first_name || ""} ${c.person?.last_lame || ""}`.trim()
+        const key = `${(c.description || "").trim().toLowerCase()}|${(c.unit || "").trim().toLowerCase()}|${personName.toLowerCase()}`
+        if (!c.description?.trim() || seen.has(key)) continue
+        seen.add(key)
+        unique.push({
+          description: c.description.trim(),
+          price: c.price,
+          unit: c.unit,
+          personName,
+          projectName: c.project?.name || "-",
+        })
+      }
+      setServiceHistory(unique)
+    }
+    fetchServiceHistory()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
   // Groups belong to (project, person) — refresh the list when the person changes
   useEffect(() => {
     if (!personId) {
       setPersonGroups([])
       setGroupChoice("")
-      setServiceHistory([])
       return
     }
     const fetchGroups = async () => {
@@ -2313,25 +2348,7 @@ function CreateContractDrawer({
       setPersonGroups(groups)
       setGroupChoice(groups.length === 0 ? "new" : "")
     }
-    const fetchServiceHistory = async () => {
-      const { data } = await supabase
-        .from("contract")
-        .select("description, price, unit, created_at")
-        .eq("person_id", parseInt(personId))
-        .order("created_at", { ascending: false })
-        .limit(200)
-      const seen = new Set<string>()
-      const unique: { description: string; price: number | null; unit: string | null }[] = []
-      for (const c of data || []) {
-        const key = `${(c.description || "").trim().toLowerCase()}|${(c.unit || "").trim().toLowerCase()}`
-        if (!c.description?.trim() || seen.has(key)) continue
-        seen.add(key)
-        unique.push({ description: c.description.trim(), price: c.price, unit: c.unit })
-      }
-      setServiceHistory(unique)
-    }
     fetchGroups()
-    fetchServiceHistory()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personId])
 
@@ -2609,7 +2626,7 @@ function CreateContractDrawer({
                                   {serviceHistory.map((svc, i) => (
                                     <CommandItem
                                       key={i}
-                                      value={`${svc.description} ${svc.unit || ""}`}
+                                      value={`${svc.description} ${svc.unit || ""} ${svc.personName}`}
                                       onSelect={() => {
                                         updateLine(index, "description", svc.description)
                                         if (svc.unit) updateLine(index, "unit", svc.unit)
@@ -2618,12 +2635,19 @@ function CreateContractDrawer({
                                         setOpenServicePicker(null)
                                       }}
                                     >
-                                      <span className="flex-1 truncate">{svc.description}</span>
-                                      {svc.price != null && svc.price > 0 && (
-                                        <span className="text-xs text-muted-foreground ml-2 whitespace-nowrap">
-                                          {svc.price.toLocaleString()} ֏{svc.unit ? ` / ${svc.unit}` : ""}
-                                        </span>
-                                      )}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="truncate">{svc.description}</span>
+                                          {svc.price != null && svc.price > 0 && (
+                                            <span className="text-xs font-medium whitespace-nowrap">
+                                              {svc.price.toLocaleString()} ֏{svc.unit ? ` / ${svc.unit}` : ""}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground truncate">
+                                          {svc.personName || "—"} · {svc.projectName}
+                                        </div>
+                                      </div>
                                     </CommandItem>
                                   ))}
                                 </CommandGroup>
