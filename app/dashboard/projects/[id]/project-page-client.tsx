@@ -26,6 +26,9 @@ import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-form
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import {
   Table,
   TableBody,
@@ -52,6 +55,7 @@ import {
   ChevronDown,
   Trash2,
   Banknote,
+  ChevronsUpDown,
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
@@ -2279,6 +2283,10 @@ function CreateContractDrawer({
   const [lines, setLines] = useState<ContractLine[]>([emptyContractLine()])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [personGroups, setPersonGroups] = useState<ContractGroup[]>([])
+  // Past services of the selected person (across projects), newest first,
+  // deduped by description+unit — used as input suggestions with price memory
+  const [serviceHistory, setServiceHistory] = useState<{ description: string; price: number | null; unit: string | null }[]>([])
+  const [openServicePicker, setOpenServicePicker] = useState<number | null>(null)
   // "new" = create a new group; otherwise an existing group id as string
   const [groupChoice, setGroupChoice] = useState("")
   const [newGroupName, setNewGroupName] = useState("")
@@ -2291,6 +2299,7 @@ function CreateContractDrawer({
     if (!personId) {
       setPersonGroups([])
       setGroupChoice("")
+      setServiceHistory([])
       return
     }
     const fetchGroups = async () => {
@@ -2304,7 +2313,25 @@ function CreateContractDrawer({
       setPersonGroups(groups)
       setGroupChoice(groups.length === 0 ? "new" : "")
     }
+    const fetchServiceHistory = async () => {
+      const { data } = await supabase
+        .from("contract")
+        .select("description, price, unit, created_at")
+        .eq("person_id", parseInt(personId))
+        .order("created_at", { ascending: false })
+        .limit(200)
+      const seen = new Set<string>()
+      const unique: { description: string; price: number | null; unit: string | null }[] = []
+      for (const c of data || []) {
+        const key = `${(c.description || "").trim().toLowerCase()}|${(c.unit || "").trim().toLowerCase()}`
+        if (!c.description?.trim() || seen.has(key)) continue
+        seen.add(key)
+        unique.push({ description: c.description.trim(), price: c.price, unit: c.unit })
+      }
+      setServiceHistory(unique)
+    }
     fetchGroups()
+    fetchServiceHistory()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personId])
 
@@ -2556,11 +2583,54 @@ function CreateContractDrawer({
                   {lines.map((line, index) => (
                     <TableRow key={index}>
                       <TableCell>
-                        <Input
-                          placeholder="Ծառայության նկարագրությունը"
-                          value={line.description}
-                          onChange={(e) => updateLine(index, "description", e.target.value)}
-                        />
+                        <Popover open={openServicePicker === index} onOpenChange={(o) => setOpenServicePicker(o ? index : null)}>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9">
+                              <span className={cn("truncate", !line.description && "text-muted-foreground")}>
+                                {line.description || "Ծառայության նկարագրությունը"}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[28rem] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                            <Command>
+                              <CommandInput
+                                placeholder="Գրեք կամ ընտրեք ծառայությունը..."
+                                value={line.description}
+                                onValueChange={(v) => updateLine(index, "description", v)}
+                              />
+                              <CommandList>
+                                <CommandEmpty>
+                                  <span className="text-xs text-muted-foreground px-2">
+                                    Նոր ծառայություն՝ «{line.description}»
+                                  </span>
+                                </CommandEmpty>
+                                <CommandGroup>
+                                  {serviceHistory.map((svc, i) => (
+                                    <CommandItem
+                                      key={i}
+                                      value={`${svc.description} ${svc.unit || ""}`}
+                                      onSelect={() => {
+                                        updateLine(index, "description", svc.description)
+                                        if (svc.unit) updateLine(index, "unit", svc.unit)
+                                        if (svc.price != null && svc.price > 0)
+                                          updateLine(index, "price", handleNumberInput(svc.price.toString()))
+                                        setOpenServicePicker(null)
+                                      }}
+                                    >
+                                      <span className="flex-1 truncate">{svc.description}</span>
+                                      {svc.price != null && svc.price > 0 && (
+                                        <span className="text-xs text-muted-foreground ml-2 whitespace-nowrap">
+                                          {svc.price.toLocaleString()} ֏{svc.unit ? ` / ${svc.unit}` : ""}
+                                        </span>
+                                      )}
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                       </TableCell>
                       <TableCell>
                         <Input

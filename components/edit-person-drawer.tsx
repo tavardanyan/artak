@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowUpRight, ArrowDownLeft, Plus, FileText, Image, Trash2, Loader2, Eye, ChevronsUpDown, Check } from "lucide-react"
+import { ArrowUpRight, ArrowDownLeft, Plus, FileText, Image, Trash2, Loader2, Eye, ChevronsUpDown, Check, History } from "lucide-react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -65,6 +65,10 @@ interface Contract {
   description: string
   total: number
   status: string
+  price: number | null
+  unit: string | null
+  qty: number | null
+  created_at: string | null
   start: string | null
   end: string | null
   project: {
@@ -193,6 +197,7 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
   const [previewMime, setPreviewMime] = useState<string | null>(null)
   const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null)
   const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = useState(false)
+  const [isServiceHistoryOpen, setIsServiceHistoryOpen] = useState(false)
 
   const supabase = createClient()
   const { toast } = useToast()
@@ -255,6 +260,10 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
         description,
         total,
         status,
+        price,
+        unit,
+        qty,
+        created_at,
         start,
         end,
         project:project_id(name, code)
@@ -701,7 +710,20 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
 
             {/* Contracts Section */}
             <div className="space-y-2">
-              <Label>Պայմանագրեր ({contracts.length})</Label>
+              <div className="flex items-center justify-between">
+                <Label>Պայմանագրեր ({contracts.length})</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setIsServiceHistoryOpen(true)}
+                  disabled={contracts.length === 0}
+                >
+                  <History className="h-3.5 w-3.5 mr-1" />
+                  Ծառայությունների պատմություն
+                </Button>
+              </div>
               {loadingRelated ? (
                 <p className="text-sm text-muted-foreground">Բեռնում...</p>
               ) : contracts.length === 0 ? (
@@ -982,6 +1004,47 @@ export function EditPersonDrawer({ open, onOpenChange, person, onSuccess }: Edit
         accountId={person.account_id ?? undefined}
         onUpdate={fetchRelatedData}
       />
+
+      {/* Service history modal */}
+      <Dialog open={isServiceHistoryOpen} onOpenChange={setIsServiceHistoryOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <div className="space-y-3">
+            <h3 className="font-semibold text-lg">
+              Ծառայությունների պատմություն — {person.first_name} {person.last_lame || ""}
+            </h3>
+            {contracts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Պատմություն չկա</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="text-xs">
+                    <TableHead>Ծառայություն</TableHead>
+                    <TableHead className="text-right">Գին / միավոր</TableHead>
+                    <TableHead>Նախագիծ</TableHead>
+                    <TableHead>Ամսաթիվ</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {contracts.map((c) => (
+                    <TableRow key={c.id} className="text-sm">
+                      <TableCell className="max-w-[280px]">
+                        <p className="line-clamp-2">{c.description}</p>
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {c.price != null
+                          ? `${c.price.toLocaleString()} ֏${c.unit ? ` / ${c.unit}` : ""}`
+                          : formatCurrency(c.total)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{c.project?.name || "-"}</TableCell>
+                      <TableCell className="text-muted-foreground whitespace-nowrap">{formatDate(c.created_at)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Document Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
