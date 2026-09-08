@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import {
@@ -2447,8 +2448,18 @@ function CreateContractDrawer({
         end: endDate ? new Date(endDate).toISOString() : null,
       }))
 
-      const { error } = await supabase.from("contract").insert(payload)
+      const { data: createdContracts, error } = await supabase
+        .from("contract")
+        .insert(payload)
+        .select("id, price, total")
       if (error) throw error
+
+      // Seed price history with the creation price
+      if (createdContracts && createdContracts.length > 0) {
+        await supabase.from("contract_price_history").insert(
+          createdContracts.map((c: any) => ({ contract_id: c.id, price: c.price, total: c.total }))
+        )
+      }
 
       toast({
         title: "Հաջողություն",
@@ -2762,6 +2773,8 @@ function EditContractDrawer({
   )
   const [groupName, setGroupName] = useState("")
   const [lines, setLines] = useState<EditContractLine[]>([])
+  // contract_id -> price states (oldest first); first row is the creation price
+  const [priceHistory, setPriceHistory] = useState<Map<number, { price: number | null; total: number; changed_at: string }[]>>(new Map())
   const [removedIds, setRemovedIds] = useState<number[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -2790,6 +2803,23 @@ function EditContractDrawer({
       }))
     )
     setRemovedIds([])
+
+    const fetchPriceHistory = async () => {
+      const ids = groupContracts.map((c) => c.id)
+      if (ids.length === 0) return
+      const { data } = await supabase
+        .from("contract_price_history")
+        .select("contract_id, price, total, changed_at")
+        .in("contract_id", ids)
+        .order("changed_at", { ascending: true })
+      const byContract = new Map<number, { price: number | null; total: number; changed_at: string }[]>()
+      for (const row of (data || []) as any[]) {
+        if (!byContract.has(row.contract_id)) byContract.set(row.contract_id, [])
+        byContract.get(row.contract_id)!.push({ price: row.price, total: row.total, changed_at: row.changed_at })
+      }
+      setPriceHistory(byContract)
+    }
+    fetchPriceHistory()
     // groupContracts comes from the same fetch as contract — re-init on open is enough
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contract, open])
@@ -2868,12 +2898,20 @@ function EditContractDrawer({
         if (error) throw error
       }
 
+      const historyInserts: { contract_id: number; price: number | null; total: number }[] = []
       for (const line of kept.filter((l) => l.contractId)) {
+        const fields = lineFields(line)
         const { error } = await supabase
           .from("contract")
-          .update({ ...shared, ...lineFields(line) })
+          .update({ ...shared, ...fields })
           .eq("id", line.contractId!)
         if (error) throw error
+
+        // Price/total changed → append a history row
+        const original = groupContracts.find((c) => c.id === line.contractId)
+        if (original && ((original.price ?? null) !== (fields.price ?? null) || original.total !== fields.total)) {
+          historyInserts.push({ contract_id: line.contractId!, price: fields.price, total: fields.total })
+        }
       }
 
       const inserts = kept
@@ -2885,8 +2923,18 @@ function EditContractDrawer({
           group_id: contract.group_id,
         }))
       if (inserts.length > 0) {
-        const { error } = await supabase.from("contract").insert(inserts)
+        const { data: createdRows, error } = await supabase
+          .from("contract")
+          .insert(inserts)
+          .select("id, price, total")
         if (error) throw error
+        for (const c of (createdRows || []) as any[]) {
+          historyInserts.push({ contract_id: c.id, price: c.price, total: c.total })
+        }
+      }
+
+      if (historyInserts.length > 0) {
+        await supabase.from("contract_price_history").insert(historyInserts)
       }
 
       toast({ title: "Հաջողություն", description: "Պայմանագրերը հաջողությամբ թարմացվեցին" })
@@ -3041,12 +3089,45 @@ function EditContractDrawer({
                         />
                       </TableCell>
                       <TableCell>
-                        <Input
-                          type="text"
-                          placeholder="0"
-                          value={line.price}
-                          onChange={(e) => updateLine(index, "price", handleNumberInput(e.target.value))}
-                        />
+                        {(() => {
+                          const history = line.contractId ? priceHistory.get(line.contractId) || [] : []
+                          const changeCount = Math.max(0, history.length - 1)
+                          return (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="text"
+                                placeholder="0"
+                                value={line.price}
+                                onChange={(e) => updateLine(index, "price", handleNumberInput(e.target.value))}
+                              />
+                              {changeCount > 0 && (
+                                <TooltipProvider delayDuration={150}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge variant="secondary" className="cursor-default text-[10px] px-1.5 py-0 shrink-0">
+                                        {changeCount}
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-xs">
+                                      <p className="font-medium mb-1">Գնի պատմություն</p>
+                                      <div className="space-y-0.5 text-xs">
+                                        {history.map((h, i) => (
+                                          <div key={i} className="flex justify-between gap-4">
+                                            <span>{new Date(h.changed_at).toLocaleDateString("en-GB")}</span>
+                                            <span className="font-medium">
+                                              {(h.price ?? h.total).toLocaleString()} ֏
+                                              {i === 0 && <span className="text-muted-foreground font-normal"> (սկզբնական)</span>}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Input
