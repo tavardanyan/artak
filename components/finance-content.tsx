@@ -279,13 +279,7 @@ export function FinanceContent({ accountId, accountName, accountCurrency }: Fina
 
   const formatDate = (date: string | null) => {
     if (!date) return "-"
-    return new Date(date).toLocaleDateString("hy-AM", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+    return new Date(date).toLocaleDateString("en-GB")
   }
 
   const getCurrencySymbol = (currency: string) => {

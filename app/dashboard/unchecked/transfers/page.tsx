@@ -138,7 +138,7 @@ export default function UncheckedTransfersPage() {
     }
   }
 
-  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("hy-AM", { year: "numeric", month: "short", day: "numeric" })
+  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("en-GB")
   const totalPages = Math.ceil(totalTransfers / TRANSFERS_PER_PAGE)
 
   const handleSetLabel = async (transferId: number, label: number) => {

@@ -281,21 +281,11 @@ const formatCurrency = (amount: number, currency: string = "amd") => {
 
 const formatDate = (dateString: string | null | undefined) => {
   if (!dateString) return "-"
-  return new Date(dateString).toLocaleDateString("hy-AM", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  })
+  return new Date(dateString).toLocaleDateString("en-GB")
 }
 
 const formatDateTime = (dateString: string) => {
-  return new Date(dateString).toLocaleDateString("hy-AM", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return new Date(dateString).toLocaleDateString("en-GB")
 }
 
 export default function ProjectPageClient({

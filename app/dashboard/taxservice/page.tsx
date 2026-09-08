@@ -624,22 +624,12 @@ export default function TaxServicePage() {
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "-"
-    return new Date(dateStr).toLocaleDateString("hy-AM", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
+    return new Date(dateStr).toLocaleDateString("en-GB")
   }
 
   const formatDateTime = (dateStr: string | null) => {
     if (!dateStr) return "-"
-    return new Date(dateStr).toLocaleString("hy-AM", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+    return new Date(dateStr).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
   }
 
   const getTimeAgo = (dateStr: string | null) => {

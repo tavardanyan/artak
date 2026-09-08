@@ -303,5 +303,5 @@ function isUserBanned(u: User): boolean {
 
 function formatDateTime(s: string): string {
   const d = new Date(s)
-  return d.toLocaleString("hy-AM", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+  return d.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
 }

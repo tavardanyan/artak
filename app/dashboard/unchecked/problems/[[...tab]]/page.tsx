@@ -311,7 +311,7 @@ export default function ProblemsPage() {
   }
 
   const formatDate = (dateStr: string | null) =>
-    dateStr ? new Date(dateStr).toLocaleDateString("hy-AM", { year: "numeric", month: "short", day: "numeric" }) : "-"
+    dateStr ? new Date(dateStr).toLocaleDateString("en-GB") : "-"
 
   const rowCheckbox = (checked: boolean, onChange: () => void) => (
     <input

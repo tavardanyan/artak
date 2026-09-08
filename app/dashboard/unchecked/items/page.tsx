@@ -165,7 +165,7 @@ export default function UncheckedItemsPage() {
     }
   }
 
-  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("hy-AM", { year: "numeric", month: "short", day: "numeric" })
+  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("en-GB")
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE)
 
   const handleSetLabel = async (itemId: number, label: number) => {

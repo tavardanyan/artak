@@ -179,11 +179,7 @@ export function ProjectDocuments({ projectId }: ProjectDocumentsProps) {
   }
 
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString("hy-AM", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
+    return new Date(date).toLocaleDateString("en-GB")
   }
 
   return (

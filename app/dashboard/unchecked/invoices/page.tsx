@@ -99,7 +99,7 @@ export default function UncheckedInvoicesPage() {
     }
   }
 
-  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("hy-AM", { year: "numeric", month: "short", day: "numeric" })
+  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("en-GB")
   const totalPages = Math.ceil(totalInvoices / INVOICES_PER_PAGE)
 
   return (

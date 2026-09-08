@@ -369,7 +369,7 @@ export default function DocumentsPage() {
                       </div>
                       <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
                         <Calendar className="h-3 w-3" />
-                        <span>{new Date(doc.created_at).toLocaleDateString("hy-AM")}</span>
+                        <span>{new Date(doc.created_at).toLocaleDateString("en-GB")}</span>
                       </div>
                     </div>
                   </div>

@@ -613,11 +613,7 @@ export default function ItemsPage() {
                             Ապրանքագիր #{invoice.serial_no}
                           </CardTitle>
                           <CardDescription className="text-xs mt-1">
-                            {new Date(invoiceDisplayDate(invoice) || invoice.created_at).toLocaleDateString('hy-AM', {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric'
-                            })}
+                            {new Date(invoiceDisplayDate(invoice) || invoice.created_at).toLocaleDateString("en-GB")}
                           </CardDescription>
                         </div>
                         <Badge variant="outline">

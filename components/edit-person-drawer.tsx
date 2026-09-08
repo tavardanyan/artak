@@ -142,11 +142,7 @@ const formatCurrency = (amount: number, currency: string = "amd") => {
 
 const formatDate = (dateString: string | null | undefined) => {
   if (!dateString) return "-"
-  return new Date(dateString).toLocaleDateString("hy-AM", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  })
+  return new Date(dateString).toLocaleDateString("en-GB")
 }
 
 const getContractStatusBadge = (status: string) => {

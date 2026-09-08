@@ -905,11 +905,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
   const formatDate = (date: string | null) => {
     if (!date) return "-"
-    return new Date(date).toLocaleDateString("hy-AM", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
+    return new Date(date).toLocaleDateString("en-GB")
   }
 
   // Export helpers — always export the FULL dataset, not the filtered/visible rows
@@ -939,7 +935,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
       "Որտեղից": t.from_warehouse?.name || `#${t.from}`,
       "Ուր": t.to_warehouse?.name || `#${t.to}`,
       "Հասցե": t.invoice?.destination_address || "",
-      "Ստեղծվել է": t.created_at ? new Date(t.created_at).toLocaleDateString("hy-AM") : "",
+      "Ստեղծվել է": t.created_at ? new Date(t.created_at).toLocaleDateString("en-GB") : "",
       "Վիճակ": t.rejected_at ? "Մերժված" : t.acepted_at ? "Ընդունված" : t.delivered_at ? "Ընթացիկ" : "Սևագիր",
       "Խիմիչիտ": t.ximichit ? "Այո" : "",
       "Հաշիվ-ապրանքագիր": t.invoice?.serial_no || "",

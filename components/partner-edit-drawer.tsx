@@ -375,11 +375,7 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
   }
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("hy-AM", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
+    return new Date(dateString).toLocaleDateString("en-GB")
   }
 
   const calculateTransferTotal = (transfer: Transfer) => {
@@ -727,7 +723,7 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
                               {person.bday && (
                                 <div>
                                   <p className="text-xs text-muted-foreground">Ծննդյան օր</p>
-                                  <p className="font-medium">{new Date(person.bday).toLocaleDateString("hy-AM")}</p>
+                                  <p className="font-medium">{new Date(person.bday).toLocaleDateString("en-GB")}</p>
                                 </div>
                               )}
                               <div>
