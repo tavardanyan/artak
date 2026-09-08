@@ -14,7 +14,6 @@ import {
   Receipt,
   ChevronRight,
   MoreHorizontal,
-  Folder,
   Handshake,
   Plus,
   Contact,
@@ -345,7 +344,9 @@ export function AppSidebar() {
                             className="h-auto min-h-8 items-start py-1.5 [&>span:last-child]:!whitespace-normal [&>span:last-child]:line-clamp-2 [&>span:last-child]:leading-snug"
                           >
                             <a href={`/dashboard/projects/${project.id}`}>
-                              <Folder className="mt-0.5" />
+                              <span className="mt-0.5 shrink-0 inline-flex items-center justify-center min-w-6 h-5 px-1 rounded bg-sidebar-primary/10 text-sidebar-primary text-[10px] font-bold tabular-nums">
+                                {project.id}
+                              </span>
                               <span>{project.name}</span>
                             </a>
                           </SidebarMenuButton>
@@ -358,7 +359,9 @@ export function AppSidebar() {
                               className="pl-8 h-auto min-h-8 items-start py-1.5 [&>span:last-child]:!whitespace-normal [&>span:last-child]:line-clamp-2 [&>span:last-child]:leading-snug"
                             >
                               <a href={`/dashboard/projects/${sub.id}`}>
-                                <Folder className="h-3 w-3 mt-0.5" />
+                                <span className="mt-0.5 shrink-0 inline-flex items-center justify-center min-w-5 h-4 px-1 rounded bg-sidebar-primary/10 text-sidebar-primary/80 text-[9px] font-bold tabular-nums">
+                                  {sub.id}
+                                </span>
                                 <span className="text-sm">{sub.name}</span>
                               </a>
                             </SidebarMenuButton>
