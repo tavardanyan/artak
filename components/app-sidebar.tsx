@@ -164,10 +164,15 @@ export function AppSidebar() {
 
   React.useEffect(() => {
     fetchActiveProjects()
-    fetchUncheckedCounts()
   }, [])
 
-  useDataRefresh(() => fetchUncheckedCounts())
+  // Unchecked counters query admin-only tables — skip for regular users
+  React.useEffect(() => {
+    if (isAdmin) fetchUncheckedCounts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin])
+
+  useDataRefresh(() => { if (isAdmin) fetchUncheckedCounts() })
 
   const fetchUncheckedCounts = async () => {
     // Default destination warehouse — used to count "unchecked transfers".

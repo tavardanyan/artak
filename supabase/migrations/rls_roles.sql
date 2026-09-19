@@ -1,0 +1,10 @@
+-- Server-side role enforcement: RLS on all tables (applied as migration rls_roles).
+-- admins (JWT app_metadata.role = 'admin') get full access; regular users get
+-- read access only where their pages need it; service_role bypasses RLS.
+-- Helper: public.is_admin(). Gago's ai_readonly role has BYPASSRLS.
+-- Admin-only tables: account, transaction, contract_transaction, settings,
+--   telegram_chat, invoice, invoice_items, contract_price_history, tasks, repair_backup_*.
+-- Read-all/write-admin: project, partner, warehouse, item, transfer, transfer_item,
+--   contract, contract_group, volume_sheet, volume_sheet_row.
+-- Full access for authenticated: task, files, completion_doc, completion_doc_row.
+-- person: read-all; regular users may write only type='contact' rows.
