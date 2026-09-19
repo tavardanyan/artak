@@ -51,6 +51,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { useRouter, usePathname } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { useRole } from "@/hooks/use-role"
 import { CreateOrderDrawer } from "@/components/create-order-drawer"
 import { CreatePurchaseDrawer } from "@/components/create-purchase-drawer"
 import { CreateTransactionDrawer } from "@/components/create-transaction-drawer"
@@ -125,6 +126,18 @@ const mainNavItems = [
   },
 ]
 
+// Pages hidden from regular (non-admin) users — must match the middleware list
+const ADMIN_ONLY_URLS = new Set([
+  "/dashboard/staff",
+  "/dashboard/finance",
+  "/dashboard/items",
+  "/dashboard/partners",
+  "/dashboard/taxservice",
+  "/dashboard/assistant",
+  "/dashboard/users",
+  "/dashboard/configs",
+])
+
 interface Project {
   id: number
   name: string
@@ -137,6 +150,8 @@ export function AppSidebar() {
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createClient()
+  const { isAdmin } = useRole()
+  const visibleNavItems = isAdmin ? mainNavItems : mainNavItems.filter((i) => !ADMIN_ONLY_URLS.has(i.url))
   const [isOrderDrawerOpen, setIsOrderDrawerOpen] = React.useState(false)
   const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = React.useState(false)
   const [createdTransactionId, setCreatedTransactionId] = React.useState<number | null>(null)
@@ -231,6 +246,7 @@ export function AppSidebar() {
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          {isAdmin && (
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -252,6 +268,7 @@ export function AppSidebar() {
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
+          )}
         </SidebarMenu>
       </SidebarHeader>
 
@@ -259,7 +276,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavItems.map((item) => (
+              {visibleNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
@@ -276,6 +293,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {isAdmin && (
         <SidebarGroup>
           <SidebarGroupLabel>Չստուգված</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -328,6 +346,7 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarGroupLabel>Ակտիվ նախագծեր</SidebarGroupLabel>

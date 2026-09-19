@@ -128,6 +128,27 @@ export default function UsersPage() {
     }
   }
 
+  const handleToggleRole = async (u: User) => {
+    const nextRole = u.app_metadata?.role === "admin" ? "user" : "admin"
+    if (!confirm(`Դարձնե՞լ ${u.email}-ին ${nextRole === "admin" ? "ադմին" : "սովորական օգտատեր"}`)) return
+    setBusyId(u.id)
+    try {
+      const res = await fetch(`/api/users/${u.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: nextRole }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || res.statusText)
+      toast({ title: "Հաջողություն", description: "Դերը փոխվեց․ ուժի մեջ կմտնի օգտատիրոջ հաջորդ մուտքից" })
+      fetchUsers()
+    } catch (error: any) {
+      toast({ title: "Սխալ", description: error?.message, variant: "destructive" })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const handleDelete = async (u: User) => {
     if (!confirm(`Ջնջե՞լ ${u.email} օգտատիրոջ հաշիվը։ Այս գործողությունն անհետացնելի է։`)) return
     setBusyId(u.id)
@@ -186,6 +207,7 @@ export default function UsersPage() {
                 <TableRow className="text-xs">
                   <TableHead className="py-2">Էլ. փոստ</TableHead>
                   <TableHead className="py-2">Կարգավիճակ</TableHead>
+                  <TableHead className="py-2">Դեր</TableHead>
                   <TableHead className="py-2">Ստեղծված</TableHead>
                   <TableHead className="py-2">Վերջին մուտքը</TableHead>
                   <TableHead className="py-2">Հաստատված</TableHead>
@@ -212,6 +234,21 @@ export default function UsersPage() {
                           <Badge variant="secondary">Հրավիրված</Badge>
                         )}
                         {isSelf && <Badge variant="outline" className="ml-1">Դուք</Badge>}
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <button
+                          type="button"
+                          disabled={isSelf || isBusy}
+                          title={isSelf ? "Սեփական դերը փոխել հնարավոր չէ" : "Փոխել դերը"}
+                          onClick={() => handleToggleRole(u)}
+                          className="disabled:cursor-not-allowed"
+                        >
+                          {u.app_metadata?.role === "admin" ? (
+                            <Badge variant="default">Ադմին</Badge>
+                          ) : (
+                            <Badge variant="secondary">Օգտատեր</Badge>
+                          )}
+                        </button>
                       </TableCell>
                       <TableCell className="py-2">{formatDateTime(u.created_at)}</TableCell>
                       <TableCell className="py-2">{u.last_sign_in_at ? formatDateTime(u.last_sign_in_at) : "—"}</TableCell>

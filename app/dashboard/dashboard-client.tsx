@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRole } from "@/hooks/use-role"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -50,6 +51,7 @@ export default function DashboardClient({ projects, initialTasks }: Props) {
   const [tasks, setTasks] = useState(initialTasks)
   const [selectedTask, setSelectedTask] = useState<DashboardTask | null>(null)
   const [defaultDay, setDefaultDay] = useState<Date | undefined>()
+  const { isAdmin } = useRole()
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   const today = new Date()
@@ -120,6 +122,7 @@ export default function DashboardClient({ projects, initialTasks }: Props) {
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
+                      {isAdmin && (<>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Պայմանագրային արժեք</span>
                         <span className="font-medium">{p.budget ? formatCurrency(p.budget) : "-"}</span>
@@ -142,6 +145,7 @@ export default function DashboardClient({ projects, initialTasks }: Props) {
                         <span className="text-muted-foreground">Պահեստի արժեք</span>
                         <span className="font-bold">{formatCurrency(p.warehouse_stock_value)}</span>
                       </div>
+                      </>)}
                     </CardContent>
                   </Card>
                 </Link>

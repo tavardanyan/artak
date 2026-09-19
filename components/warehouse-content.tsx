@@ -46,6 +46,7 @@ import { SplitTransferModal } from "@/components/split-transfer-modal"
 import { XimichitModal } from "@/components/ximichit-modal"
 import { TransferDetailDrawer } from "@/components/transfer-detail-drawer"
 import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
+import { useRole } from "@/hooks/use-role"
 import { TransferStatusActions } from "@/components/transfer-status-actions"
 
 interface Transfer {
@@ -144,6 +145,7 @@ interface NewTransferItem {
 interface WarehouseContentProps {
   warehouseId: number
   warehouseName: string
+  inProject?: boolean
   initialTransferData?: {
     fromWarehouse?: number
     toWarehouse?: number
@@ -154,7 +156,10 @@ interface WarehouseContentProps {
   }
 }
 
-export function WarehouseContent({ warehouseId, warehouseName, initialTransferData }: WarehouseContentProps) {
+export function WarehouseContent({ warehouseId, warehouseName, inProject, initialTransferData }: WarehouseContentProps) {
+  const { isAdmin } = useRole()
+  // Regular users: no amounts, no drawers; in projects also no transfers tab
+  const showTransfersTab = isAdmin || !inProject
   const [transfers, setTransfers] = useState<Transfer[]>([])
   const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>([])
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null)
@@ -972,17 +977,19 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
-        <div></div>
-        <Button onClick={() => setIsCreateTransferDrawerOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Ստեղծել տեղափոխում
-        </Button>
-      </div>
+      {isAdmin && (
+        <div className="flex items-center justify-between mb-4">
+          <div></div>
+          <Button onClick={() => setIsCreateTransferDrawerOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Ստեղծել տեղափոխում
+          </Button>
+        </div>
+      )}
 
-      <Tabs defaultValue="transfers" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="transfers">Տեղափոխումներ</TabsTrigger>
+      <Tabs defaultValue={showTransfersTab ? "transfers" : "items"} className="w-full">
+        <TabsList className={`grid w-full ${showTransfersTab ? "grid-cols-3" : "grid-cols-2"}`}>
+          {showTransfersTab && <TabsTrigger value="transfers">Տեղափոխումներ</TabsTrigger>}
           <TabsTrigger value="items">Ապրանքներ</TabsTrigger>
           <TabsTrigger value="services">Ծառայություններ</TabsTrigger>
         </TabsList>
@@ -1089,7 +1096,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                       <TableRow
                         key={transfer.id}
                         className="cursor-pointer hover:bg-accent"
-                        onClick={() => handleTransferClick(transfer)}
+                        onClick={() => isAdmin && handleTransferClick(transfer)}
                       >
                         <TableCell>
                           <LabelCell value={transfer.label} onChange={(next) => setTransferLabel(transfer.id, next)} />
@@ -1200,9 +1207,13 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                       <TableHead>Անվանում</TableHead>
                       <TableHead>Միավոր</TableHead>
                       <TableHead className="text-right">Քանակ</TableHead>
-                      <TableHead className="text-right">Վերջին գին</TableHead>
-                      <TableHead className="text-right">Միջին գին</TableHead>
-                      <TableHead className="text-right">Ընդհանուր արժեք</TableHead>
+                      {isAdmin && (
+                        <>
+                          <TableHead className="text-right">Վերջին գին</TableHead>
+                          <TableHead className="text-right">Միջին գին</TableHead>
+                          <TableHead className="text-right">Ընդհանուր արժեք</TableHead>
+                        </>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1213,7 +1224,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                         <TableRow
                           key={item.item_id}
                           className="cursor-pointer hover:bg-accent"
-                          onClick={() => handleItemClick(item)}
+                          onClick={() => isAdmin && handleItemClick(item)}
                         >
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <LabelCell value={item.item?.label} onChange={(next) => setItemLabel(item.item_id, next)} />
@@ -1241,22 +1252,26 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                           <TableCell className="text-right font-medium">
                             {item.stock_qty}
                           </TableCell>
-                          <TableCell className="text-right">
-                            {item.last_price != null ? `${item.last_price.toLocaleString()} ֏` : "-"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {item.avg_price != null ? `${item.avg_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
-                          </TableCell>
-                          <TableCell className="text-right font-semibold">
-                            {totalValue != null ? `${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
-                          </TableCell>
+                          {isAdmin && (
+                            <>
+                              <TableCell className="text-right">
+                                {item.last_price != null ? `${item.last_price.toLocaleString()} ֏` : "-"}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {item.avg_price != null ? `${item.avg_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
+                              </TableCell>
+                              <TableCell className="text-right font-semibold">
+                                {totalValue != null ? `${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
+                              </TableCell>
+                            </>
+                          )}
                         </TableRow>
                       )
                     })}
                   </TableBody>
                 </Table>
               )}
-              {visibleGoodsItems.length > 0 && (
+              {isAdmin && visibleGoodsItems.length > 0 && (
                 <div className="flex justify-between items-center pt-4 mt-4 border-t">
                   <span className="font-medium">Ընդամենը ({visibleGoodsItems.length} ապրանք)</span>
                   <span className="text-lg font-bold">
@@ -1309,9 +1324,13 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                       <TableHead>Անվանում</TableHead>
                       <TableHead>Միավոր</TableHead>
                       <TableHead className="text-right">Քանակ</TableHead>
-                      <TableHead className="text-right">Վերջին գին</TableHead>
-                      <TableHead className="text-right">Միջին գին</TableHead>
-                      <TableHead className="text-right">Ընդհանուր արժեք</TableHead>
+                      {isAdmin && (
+                        <>
+                          <TableHead className="text-right">Վերջին գին</TableHead>
+                          <TableHead className="text-right">Միջին գին</TableHead>
+                          <TableHead className="text-right">Ընդհանուր արժեք</TableHead>
+                        </>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1321,7 +1340,7 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                         <TableRow
                           key={item.item_id}
                           className="cursor-pointer hover:bg-accent"
-                          onClick={() => handleItemClick(item)}
+                          onClick={() => isAdmin && handleItemClick(item)}
                         >
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <LabelCell value={item.item?.label} onChange={(next) => setItemLabel(item.item_id, next)} />
@@ -1333,22 +1352,26 @@ export function WarehouseContent({ warehouseId, warehouseName, initialTransferDa
                           <TableCell className="text-right font-medium">
                             {item.stock_qty}
                           </TableCell>
-                          <TableCell className="text-right">
-                            {item.last_price != null ? `${item.last_price.toLocaleString()} ֏` : "-"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {item.avg_price != null ? `${item.avg_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
-                          </TableCell>
-                          <TableCell className="text-right font-semibold">
-                            {totalValue != null ? `${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
-                          </TableCell>
+                          {isAdmin && (
+                            <>
+                              <TableCell className="text-right">
+                                {item.last_price != null ? `${item.last_price.toLocaleString()} ֏` : "-"}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {item.avg_price != null ? `${item.avg_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
+                              </TableCell>
+                              <TableCell className="text-right font-semibold">
+                                {totalValue != null ? `${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ֏` : "-"}
+                              </TableCell>
+                            </>
+                          )}
                         </TableRow>
                       )
                     })}
                   </TableBody>
                 </Table>
               )}
-              {visibleServiceItems.length > 0 && (
+              {isAdmin && visibleServiceItems.length > 0 && (
                 <div className="flex justify-between items-center pt-4 mt-4 border-t">
                   <span className="font-medium">Ընդամենը ({visibleServiceItems.length} ծառայություն)</span>
                   <span className="text-lg font-bold">

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Fragment } from "react"
 import { useDataRefresh } from "@/hooks/use-data-refresh"
+import { useRole } from "@/hooks/use-role"
 import { createClient } from "@/lib/supabase/client"
 
 export interface ProjectDashboardData {
@@ -302,6 +303,7 @@ export default function ProjectPageClient({
   initialDashboard: ProjectDashboardData
 }) {
   const supabase = createClient()
+  const { isAdmin } = useRole()
   const { toast } = useToast()
 
   const [project, setProject] = useState<Project | null>(null)
@@ -994,9 +996,12 @@ export default function ProjectPageClient({
             <TabsTrigger value="warehouse" data-tab-value="warehouse">
               Պահեստ
             </TabsTrigger>
+            {isAdmin && (
             <TabsTrigger value="suppliers" data-tab-value="suppliers">
               Մատակարարներ
             </TabsTrigger>
+            )}
+            {isAdmin && (
             <TabsTrigger value="transactions" data-tab-value="transactions">
               Գործարքներ
               {transactions.length > 0 && (
@@ -1005,6 +1010,7 @@ export default function ProjectPageClient({
                 </Badge>
               )}
             </TabsTrigger>
+            )}
             <TabsTrigger value="volume" data-tab-value="volume">Ծավալաթերթ</TabsTrigger>
             <TabsTrigger value="documents" data-tab-value="documents">Փաստաթղթեր</TabsTrigger>
             <TabsTrigger value="tasks" data-tab-value="tasks">
@@ -1018,8 +1024,8 @@ export default function ProjectPageClient({
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
-          {/* Key Financial Indicators */}
-          {(() => {
+          {/* Key Financial Indicators (admin only) */}
+          {isAdmin && (() => {
             // Use SSR-supplied values when local state hasn't loaded yet
             const hasContracts = contracts.length > 0
             const hasTransactions = transactions.length > 0
@@ -1128,8 +1134,8 @@ export default function ProjectPageClient({
             )
           })()}
 
-          {/* Project Summary Cards (Contracts by Position, Transactions In/Out, Supplier Transactions) */}
-          {(() => {
+          {/* Project Summary Cards (admin only) */}
+          {isAdmin && (() => {
             const hasContracts = contracts.length > 0
             // Contracts by status (use SSR data if local state is empty)
             const contractsByStatus: Record<string, number> = hasContracts
@@ -1503,10 +1509,12 @@ export default function ProjectPageClient({
                       Խմբավորել ըստ անձի
                     </label>
                   </div>
-                  <Button onClick={() => setIsContractDrawerOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Ավելացնել պայմանագիր
-                  </Button>
+                  {isAdmin && (
+                    <Button onClick={() => setIsContractDrawerOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Ավելացնել պայմանագիր
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -1523,9 +1531,13 @@ export default function ProjectPageClient({
                       <TableHead>Աշխատակից</TableHead>
                       <TableHead>Նկարագրություն</TableHead>
                       <TableHead className="text-right">Քանակ</TableHead>
-                      <TableHead className="text-right">Գին</TableHead>
-                      <TableHead className="text-right">Ընդամենը</TableHead>
-                      <TableHead className="text-right">Գործարքներ</TableHead>
+                      {isAdmin && (
+                        <>
+                          <TableHead className="text-right">Գին</TableHead>
+                          <TableHead className="text-right">Ընդամենը</TableHead>
+                          <TableHead className="text-right">Գործարքներ</TableHead>
+                        </>
+                      )}
                       <TableHead>Վիճակ</TableHead>
                       <TableHead>Սկիզբ</TableHead>
                       <TableHead>Ավարտ</TableHead>
@@ -1548,6 +1560,7 @@ export default function ProjectPageClient({
                             key={contract.id}
                             className="cursor-pointer hover:bg-accent"
                             onClick={() => {
+                              if (!isAdmin) return
                               setSelectedContract(contract)
                               setIsEditContractDrawerOpen(true)
                             }}
@@ -1575,24 +1588,28 @@ export default function ProjectPageClient({
                             <TableCell className="text-right">
                               {contract.qty || "-"} {contract.unit || ""}
                             </TableCell>
-                            <TableCell className="text-right">
-                              {contract.price ? formatCurrency(contract.price) : "-"}
-                            </TableCell>
-                            <TableCell className="text-right font-medium">
-                              {formatCurrency(contract.total)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {transactionCount > 0 ? (
-                                <div>
-                                  <p className="font-medium">{formatCurrency(transactionTotal)}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {transactionCount} գործարք
-                                  </p>
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
+                            {isAdmin && (
+                              <>
+                                <TableCell className="text-right">
+                                  {contract.price ? formatCurrency(contract.price) : "-"}
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {formatCurrency(contract.total)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {transactionCount > 0 ? (
+                                    <div>
+                                      <p className="font-medium">{formatCurrency(transactionTotal)}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {transactionCount} գործարք
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                              </>
+                            )}
                             <TableCell>
                               {getContractStatusBadge(contract.status)}
                             </TableCell>
@@ -1637,25 +1654,31 @@ export default function ProjectPageClient({
                                   {rows.length} պայմանագիր
                                 </TableCell>
                                 <TableCell />
-                                <TableCell />
-                                <TableCell className="text-right text-sm font-medium">{formatCurrency(gTotal)}</TableCell>
-                                <TableCell className="text-right text-sm font-medium">
-                                  {gPaid > 0 ? formatCurrency(gPaid) : <span className="text-muted-foreground font-normal">-</span>}
-                                </TableCell>
-                                <TableCell colSpan={3} className="text-right">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 text-xs"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handlePayGroup(gid)
-                                    }}
-                                  >
-                                    <Banknote className="h-3.5 w-3.5 mr-1" />
-                                    Վճարել
-                                  </Button>
-                                </TableCell>
+                                {isAdmin ? (
+                                  <>
+                                    <TableCell />
+                                    <TableCell className="text-right text-sm font-medium">{formatCurrency(gTotal)}</TableCell>
+                                    <TableCell className="text-right text-sm font-medium">
+                                      {gPaid > 0 ? formatCurrency(gPaid) : <span className="text-muted-foreground font-normal">-</span>}
+                                    </TableCell>
+                                    <TableCell colSpan={3} className="text-right">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handlePayGroup(gid)
+                                        }}
+                                      >
+                                        <Banknote className="h-3.5 w-3.5 mr-1" />
+                                        Վճարել
+                                      </Button>
+                                    </TableCell>
+                                  </>
+                                ) : (
+                                  <TableCell colSpan={4} />
+                                )}
                               </TableRow>
                               {rows.map((contract) => renderContractRow(contract, true))}
                             </Fragment>
@@ -1733,15 +1756,21 @@ export default function ProjectPageClient({
                                 {group.contracts.length} պայմանագիր
                                 {unlinked ? ` + ${unlinked.count} առանց պայմ.` : ""}
                               </TableCell>
-                              <TableCell />
-                              <TableCell />
-                              <TableCell className="text-right font-semibold">
-                                {formatCurrency(groupTotal)}
-                              </TableCell>
-                              <TableCell className="text-right font-semibold">
-                                {groupPaid > 0 ? formatCurrency(groupPaid) : <span className="text-muted-foreground font-normal">-</span>}
-                              </TableCell>
-                              <TableCell colSpan={3} />
+                              {isAdmin ? (
+                                <>
+                                  <TableCell />
+                                  <TableCell />
+                                  <TableCell className="text-right font-semibold">
+                                    {formatCurrency(groupTotal)}
+                                  </TableCell>
+                                  <TableCell className="text-right font-semibold">
+                                    {groupPaid > 0 ? formatCurrency(groupPaid) : <span className="text-muted-foreground font-normal">-</span>}
+                                  </TableCell>
+                                  <TableCell colSpan={3} />
+                                </>
+                              ) : (
+                                <TableCell colSpan={5} />
+                              )}
                             </TableRow>
                             {isExpanded && renderGroupedContracts(group.contracts)}
                             {isExpanded && unlinked && (
@@ -1752,6 +1781,8 @@ export default function ProjectPageClient({
                                 <TableCell className="text-sm">
                                   Նախագծին կապված վճարումներ առանց պայմանագրի
                                 </TableCell>
+                              {isAdmin ? (
+                                <>
                                 <TableCell />
                                 <TableCell />
                                 <TableCell />
@@ -1762,6 +1793,10 @@ export default function ProjectPageClient({
                                   </div>
                                 </TableCell>
                                 <TableCell colSpan={3} />
+                                </>
+                              ) : (
+                                <TableCell colSpan={7} />
+                              )}
                               </TableRow>
                             )}
                           </Fragment>
@@ -1771,7 +1806,7 @@ export default function ProjectPageClient({
                   </TableBody>
                 </Table>
               )}
-              {(contracts.length > 0 || unlinkedStaffPayments.length > 0) && (() => {
+              {isAdmin && (contracts.length > 0 || unlinkedStaffPayments.length > 0) && (() => {
                 const totalAmount = contracts.reduce((sum, c) => sum + c.total, 0)
                 const unlinkedTotal = unlinkedStaffPayments.reduce((sum, up) => sum + up.total, 0)
                 // Paid rolls up from contract groups (covers group-linked payments;
@@ -1863,6 +1898,7 @@ export default function ProjectPageClient({
             <WarehouseContent
               warehouseId={project.warehouse_id}
               warehouseName={project.warehouse?.name || "Պահեստ"}
+              inProject
             />
           )}
         </TabsContent>

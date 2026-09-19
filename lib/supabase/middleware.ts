@@ -39,6 +39,26 @@ export async function updateSession(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))
   const isSetPassword = pathname === '/auth/set-password' || pathname.startsWith('/auth/set-password/')
 
+  // Pages regular (non-admin) users may not open
+  const ADMIN_ONLY_PREFIXES = [
+    '/dashboard/staff',
+    '/dashboard/finance',
+    '/dashboard/items',
+    '/dashboard/partners',
+    '/dashboard/taxservice',
+    '/dashboard/assistant',
+    '/dashboard/users',
+    '/dashboard/configs',
+    '/dashboard/unchecked',
+  ]
+  if (user && user.app_metadata?.role !== 'admin' &&
+      ADMIN_ONLY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard'
+    url.search = ''
+    return NextResponse.redirect(url)
+  }
+
   // Unauthenticated users may only visit public routes (login, callback, forgot)
   if (!user && !isPublic && !isSetPassword) {
     const url = request.nextUrl.clone()

@@ -5,6 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin"
 async function requireUser() {
   const supabase = await createServerClient()
   const { data: { user } } = await supabase.auth.getUser()
+  // User management is admin-only
+  if (user && user.app_metadata?.role !== "admin") return null
   return user
 }
 
@@ -49,6 +51,7 @@ export async function POST(request: NextRequest) {
       email,
       email_confirm: true,
       password: crypto.randomUUID(),
+      app_metadata: { role: "user" },
     })
     if (error) return NextResponse.json({ error: error.message }, { status: 400 })
     return NextResponse.json({ user: data.user })
