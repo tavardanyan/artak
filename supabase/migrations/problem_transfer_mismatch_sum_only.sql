@@ -1,0 +1,5 @@
+-- Only flag transfers whose TOTAL differs from the invoice by more than 50 AMD;
+-- line-level qty differences with matching sums are no longer reported.
+-- (Full view body applied as migration problem_transfer_mismatch_sum_only —
+-- identical to problem_transfer_mismatch_performance except the final WHERE:
+--   WHERE abs(COALESCE(i.total, 0::real) - tt.transfer_total) > 50 )

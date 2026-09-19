@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { after } from "next/server"
+import { autofixProblems } from "@/lib/problems-autofix"
 import { SupabaseClient } from "@supabase/supabase-js"
 import { createClient as createServerClient } from "@/lib/supabase/server"
 import { createInvoiceSourceClient } from "@/lib/supabase/invoice-source"
@@ -89,6 +91,16 @@ export async function POST(_req: NextRequest) {
     return await runSync(supabase, tin, startAnchor)
   } finally {
     await releaseSyncLock(supabase)
+    // Newly synced data may introduce fixable problems — clean them up
+    // automatically once the response is on its way
+    after(async () => {
+      try {
+        const summary = await autofixProblems(supabase)
+        if (!summary.skipped) console.log("[Sync] Autofix:", JSON.stringify(summary))
+      } catch (err) {
+        console.error("[Sync] Autofix failed:", err)
+      }
+    })
   }
 }
 

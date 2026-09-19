@@ -168,6 +168,35 @@ export default function ProblemsPage() {
     if (!open) fetchProblems()
   }
 
+  const handleAutofix = async () => {
+    setBulkProcessing(true)
+    try {
+      const res = await fetch("/api/problems/autofix", { method: "POST" })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || res.statusText)
+      if (json.skipped) {
+        toast({ title: "Ավտոուղղումն արդեն ընթացքի մեջ է" })
+      } else {
+        toast({
+          title: "Ավտոուղղումն ավարտվեց",
+          description: [
+            json.warehousesCreated ? `${json.warehousesCreated} պահեստ` : null,
+            json.itemsSynced ? `${json.itemsSynced} ապրանքագիր լրացվեց` : null,
+            json.transfersCreated ? `${json.transfersCreated} տեղափոխում` : null,
+            json.transfersRebuilt ? `${json.transfersRebuilt} վերակառուցում` : null,
+            json.errors?.length ? `${json.errors.length} սխալ` : null,
+          ].filter(Boolean).join(", ") || "Ուղղելու բան չկար",
+          variant: json.errors?.length ? "destructive" : undefined,
+        })
+      }
+      fetchProblems()
+    } catch (error: any) {
+      toast({ title: "Սխալ", description: error?.message, variant: "destructive" })
+    } finally {
+      setBulkProcessing(false)
+    }
+  }
+
   const handleBulkCreateTransfers = async () => {
     const selected = invoicesNoTransfer.filter((i) => selNoTransfer.has(i.id))
     if (selected.length === 0) return
@@ -384,11 +413,17 @@ export default function ProblemsPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Խնդրահարույց գրառումներ</h2>
-        <p className="text-sm text-muted-foreground">
-          Ապրանքագրեր առանց տեղափոխման կամ ապրանքների
-        </p>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Խնդրահարույց գրառումներ</h2>
+          <p className="text-sm text-muted-foreground">
+            Ապրանքագրեր առանց տեղափոխման կամ ապրանքների․ ուղղվում են նաև ավտոմատ՝ ամեն սինքից հետո
+          </p>
+        </div>
+        <Button size="sm" disabled={bulkProcessing} onClick={handleAutofix}>
+          {bulkProcessing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+          Ավտոուղղում
+        </Button>
       </div>
 
       {loading ? (
