@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge"
 interface SheetRow {
   id: number
   seq: number
+  src_row: number | null
   kind: "group" | "subgroup" | "item"
   number: string | null
   code: string | null
@@ -79,7 +80,7 @@ const posNumberInput = (v: string) => handleNumberInput(v).replace(/^-+/, "")
 // the sheet price and is never editable).
 export function VolumeSheetSection({ projectId }: { projectId: number }) {
   const [loading, setLoading] = useState(true)
-  const [sheet, setSheet] = useState<{ id: number; file_name: string | null; created_at: string } | null>(null)
+  const [sheet, setSheet] = useState<{ id: number; file_name: string | null; file_path: string | null; created_at: string } | null>(null)
   const [rows, setRows] = useState<SheetRow[]>([])
   const [docs, setDocs] = useState<CompletionDoc[]>([])
   const [docRows, setDocRows] = useState<DocRow[]>([])
@@ -121,7 +122,7 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
     try {
       const { data: sheetData } = await supabase
         .from("volume_sheet")
-        .select("id, file_name, created_at")
+        .select("id, file_name, file_path, created_at")
         .eq("project_id", projectId)
         .maybeSingle()
       setSheet(sheetData || null)
@@ -411,40 +412,100 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
     setDeleteDocId(null)
   }
 
-  // ---- XLSX export of a completion doc (respects the show-all switcher) ----
+  // ---- XLSX export: an EXACT copy of the uploaded workbook (colors, fonts,
+  // widths, everything) where ONLY the qty column carries the act's values ----
 
-  const downloadDocXlsx = (doc: CompletionDoc) => {
-    const thisDoc = new Map(docRows.filter((dr) => dr.doc_id === doc.id).map((dr) => [dr.row_id, dr]))
-    const changedHeadings = headingsWithChanges(new Set(thisDoc.keys()))
-    const before = doneBefore(doc.doc_no)
-    const aoa: any[][] = [["N", "Անվանում", "Չ/մ", "Ծավալ", "Նախորդ կատ.", "Փաստ. քանակ", "Գին", "Գումար", "Մնացորդ"]]
-    let total = 0
-    for (const r of rows) {
-      if (r.kind !== "item") {
-        if (showAllRows || changedHeadings.has(r.id)) {
-          aoa.push([r.kind === "subgroup" ? `  ${r.name}` : r.name, "", "", "", "", "", "", "", ""])
-        }
-        continue
+  const colLetter = (n: number) => {
+    let sIdx = n, out = ""
+    while (sIdx >= 0) { out = String.fromCharCode(65 + (sIdx % 26)) + out; sIdx = Math.floor(sIdx / 26) - 1 }
+    return out
+  }
+  const colIndex = (letters: string) => {
+    let n = 0
+    for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64)
+    return n - 1
+  }
+
+  const downloadDocXlsx = async (doc: CompletionDoc) => {
+    try {
+      if (!sheet?.file_path) {
+        toast({
+          title: "Բնօրինակը չկա",
+          description: "Այս Ծավալաթերթի սկզբնական ֆայլը պահված չէ․ վերբեռնեք ֆայլը նորից, որ արտահանումը լինի բնօրինակի ձևաչափով",
+          variant: "destructive",
+        })
+        return
       }
-      const dr = thisDoc.get(r.id)
-      if (!dr && !showAllRows) continue
-      const prev = before.get(r.id) || 0
-      const qty = dr?.qty || 0
-      const price = r.price || 0
-      const amount = qty * price
-      total += amount
-      aoa.push([
-        r.number || "", r.name, r.unit || "", r.qty ?? "",
-        prev || "", dr ? qty : "", price || "", dr ? amount : "",
-        (r.qty || 0) - prev - qty,
-      ])
+      const url = supabase.storage.from("artak").getPublicUrl(sheet.file_path).data.publicUrl
+      const buf = await fetch(url).then((r) => {
+        if (!r.ok) throw new Error("Չհաջողվեց բեռնել բնօրինակ ֆայլը")
+        return r.arrayBuffer()
+      })
+
+      const JSZip = (await import("jszip")).default
+      const zip = await JSZip.loadAsync(buf)
+
+      // Resolve the first sheet's XML path via workbook relations
+      const wbXml = await zip.file("xl/workbook.xml")!.async("string")
+      const relsXml = await zip.file("xl/_rels/workbook.xml.rels")!.async("string")
+      const firstSheetRid = wbXml.match(/<sheet[^>]*r:id="([^"]+)"/)?.[1]
+      const relMatch = firstSheetRid
+        ? relsXml.match(new RegExp(`<Relationship[^>]*Id="${firstSheetRid}"[^>]*Target="([^"]+)"`))
+        : null
+      let target = relMatch?.[1] || "worksheets/sheet1.xml"
+      if (target.startsWith("/")) target = target.slice(1)
+      else if (!target.startsWith("xl/")) target = `xl/${target}`
+      const sheetFile = zip.file(target)
+      if (!sheetFile) throw new Error("Աղյուսակի XML-ը չի գտնվել")
+      let xml = await sheetFile.async("string")
+
+      const rowBlock = (xmlRow: number) => {
+        const m = xml.match(new RegExp(`<row[^>]*\\br="${xmlRow}"[^>]*(?:/>|>[\\s\\S]*?</row>)`))
+        return m ? m[0] : null
+      }
+
+      // Find the qty column: for each item row, locate the cell whose numeric
+      // value equals the extracted qty; take the majority column
+      const votes = new Map<string, number>()
+      for (const r of itemRows) {
+        if (r.src_row == null || r.qty == null) continue
+        const block = rowBlock(r.src_row)
+        if (!block) continue
+        for (const cm of block.matchAll(/<c[^>]*r="([A-Z]+)(\d+)"[^>]*>[\s\S]*?<v>([^<]*)<\/v>[\s\S]*?<\/c>/g)) {
+          const val = Number(cm[3])
+          if (isFinite(val) && Math.abs(val - r.qty) < 1e-9) {
+            votes.set(cm[1], (votes.get(cm[1]) || 0) + 1)
+          }
+        }
+      }
+      const qtyCol = Array.from(votes.entries()).sort((a, b) => b[1] - a[1])[0]?.[0]
+      if (!qtyCol) throw new Error("Քանակի սյունը չի հայտնաբերվել")
+
+      // Patch the qty cell of every item row: act qty, or 0 when untouched
+      const thisDoc = new Map(docRows.filter((dr) => dr.doc_id === doc.id).map((dr) => [dr.row_id, dr.qty]))
+      for (const r of itemRows) {
+        if (r.src_row == null) continue
+        const ref = `${qtyCol}${r.src_row}`
+        const newVal = thisDoc.get(r.id) || 0
+        const cellRe = new RegExp(`<c([^>]*\\br="${ref}"[^>]*?)(/>|>[\\s\\S]*?</c>)`)
+        const m = xml.match(cellRe)
+        if (!m) continue
+        // keep the cell's style, drop formulas/shared-string typing
+        const attrs = m[1].replace(/\st="[^"]*"/g, "")
+        xml = xml.replace(cellRe, `<c${attrs}><v>${newVal}</v></c>`)
+      }
+
+      zip.file(target, xml)
+      const blob = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+      const a = document.createElement("a")
+      a.href = URL.createObjectURL(blob)
+      a.download = `Կատարողական-${doc.doc_no}.xlsx`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch (error: any) {
+      console.error("Export error:", error)
+      toast({ title: "Սխալ", description: error?.message || "Արտահանումը ձախողվեց", variant: "destructive" })
     }
-    aoa.push(["", "Ընդամենը", "", "", "", "", "", total, ""])
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws["!cols"] = [{ wch: 6 }, { wch: 60 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 10 }]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, `Կատարողական ${doc.doc_no}`)
-    XLSX.writeFile(wb, `Կատարողական-${doc.doc_no}.xlsx`)
   }
 
   // ---- render pieces ----

@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic"
 
 const rowSchema = z.object({
   kind: z.enum(["group", "subgroup", "item"]),
+  src_row: z.number().nullish(),
   number: z.string().nullish(),
   code: z.string().nullish(),
   name: z.string(),
@@ -25,8 +26,9 @@ const EXTRACTION_PROMPT = `You are given part of the raw cell grid of an Armenia
 
 Rules:
 - Output ONLY valid JSON: {"rows": [...]} — no markdown fences, no commentary.
-- Each row is a compact array: [kind, number, code, name, unit, qty, price]
+- Each row is a compact array: [kind, src, number, code, name, unit, qty, price]
   - kind: "g" (top-level section heading), "s" (nested sub-heading), "i" (actual work/material line)
+  - src: the source row number — the integer N from the "RN:" prefix of the grid line this row came from
   - number: the line's ordinal as shown, as a string, or null (per-section restarts are fine)
   - code: the norm/estimate code (e.g. "E46-96") if a separate code column exists, else null
   - name: the work/material or heading name (string)
@@ -40,7 +42,7 @@ Rules:
 - The grid may be a MIDDLE SLICE of a longer document: extract exactly the rows in the EXTRACT section, never rows from the CONTEXT section.`
 
 const chunkResultSchema = z.object({
-  rows: z.array(z.array(z.union([z.string(), z.number(), z.null()])).min(4).max(7)),
+  rows: z.array(z.array(z.union([z.string(), z.number(), z.null()])).min(5).max(8)),
 })
 
 type ParsedRow = z.infer<typeof rowSchema>
@@ -48,11 +50,16 @@ type ParsedRow = z.infer<typeof rowSchema>
 function toRow(arr: (string | number | null)[]): ParsedRow | null {
   const kindMap: Record<string, "group" | "subgroup" | "item"> = { g: "group", s: "subgroup", i: "item" }
   const kind = kindMap[String(arr[0])]
-  const name = arr[3] != null ? String(arr[3]).trim() : ""
+  const name = arr[4] != null ? String(arr[4]).trim() : ""
   if (!kind || !name) return null
   const num = (v: any) => (typeof v === "number" && isFinite(v) ? v : v != null && v !== "" && isFinite(Number(v)) ? Number(v) : null)
   const str = (v: any) => (v != null && String(v).trim() !== "" ? String(v).trim() : null)
-  return { kind, number: str(arr[1]), code: str(arr[2]), name, unit: str(arr[4]), qty: num(arr[5]), price: num(arr[6]) }
+  const src = num(arr[1])
+  return {
+    kind, src_row: src != null ? Math.round(src) : null,
+    number: str(arr[2]), code: str(arr[3]), name,
+    unit: str(arr[5]), qty: num(arr[6]), price: num(arr[7]),
+  }
 }
 
 const CHUNK_SIZE = 120
@@ -91,13 +98,16 @@ export async function POST(req: NextRequest) {
     const wb = XLSX.read(Buffer.from(fileBase64, "base64"), { type: "buffer" })
     const ws = wb.Sheets[wb.SheetNames[0]]
     const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: "" })
+    // Label lines with ABSOLUTE 1-based Excel row numbers (the used range may
+    // not start at A1) — Կատարողական export patches cells by these rows
+    const rangeStartRow = XLSX.utils.decode_range(ws["!ref"] || "A1").s.r
     const lines: string[] = []
     rows.forEach((r, i) => {
       const cells = (r as any[]).slice(0, 10).map((c) =>
         typeof c === "number" ? String(Math.round(c * 10000) / 10000) : String(c).replace(/\s+/g, " ").trim()
       )
       if (cells.every((c) => !c)) return
-      lines.push(`R${i}: ${cells.join(" | ")}`)
+      lines.push(`R${rangeStartRow + i + 1}: ${cells.join(" | ")}`)
     })
     grid = lines.join("\n")
     if (lines.length < 3) throw new Error("empty sheet")
@@ -137,9 +147,22 @@ export async function POST(req: NextRequest) {
     .single()
   if (sheetErr || !sheet) return NextResponse.json({ error: sheetErr?.message || "insert failed" }, { status: 500 })
 
+  // Keep the original workbook: Կատարողական exports patch qty into an exact copy
+  const originalPath = `documents/volume-sheet/${sheet.id}.xlsx`
+  const { error: fileErr } = await supabase.storage
+    .from("artak")
+    .upload(originalPath, Buffer.from(fileBase64, "base64"), {
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      upsert: true,
+    })
+  if (!fileErr) {
+    await supabase.from("volume_sheet").update({ file_path: originalPath }).eq("id", sheet.id)
+  }
+
   const rowsPayload = parsed.rows.map((r, i) => ({
     sheet_id: sheet.id,
     seq: i,
+    src_row: r.src_row ?? null,
     kind: r.kind,
     number: r.number || null,
     code: r.code || null,
