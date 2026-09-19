@@ -86,6 +86,7 @@ import { EditProjectDrawer } from "@/components/edit-project-drawer"
 import { PartnerEditDrawer } from "@/components/partner-edit-drawer"
 import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
 import { CreateTransactionDrawer } from "@/components/create-transaction-drawer"
+import { VolumeSheetSection } from "@/components/volume-sheet-section"
 
 interface Project {
   id: number
@@ -1004,6 +1005,7 @@ export default function ProjectPageClient({
                 </Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="volume" data-tab-value="volume">Ծավալաթերթ</TabsTrigger>
             <TabsTrigger value="documents" data-tab-value="documents">Փաստաթղթեր</TabsTrigger>
             <TabsTrigger value="tasks" data-tab-value="tasks">
               Առաջադրանքներ
@@ -2070,6 +2072,10 @@ export default function ProjectPageClient({
         </TabsContent>
 
         {/* Documents Tab */}
+        <TabsContent value="volume" className="space-y-4">
+          <VolumeSheetSection projectId={parseInt(projectId)} />
+        </TabsContent>
+
         <TabsContent value="documents" className="space-y-4">
           <ProjectDocuments projectId={project.id} />
         </TabsContent>
