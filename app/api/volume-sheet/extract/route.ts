@@ -60,8 +60,9 @@ const CONTEXT_LINES = 20
 
 async function extractChunk(context: string, chunk: string): Promise<ParsedRow[]> {
   const { text } = await generateText({
-    model: "google/gemini-3.1-pro-preview",
-    reasoning: "xhigh",
+    // Flash matches Pro's extraction quality here at ~10x lower cost
+    model: "google/gemini-3.7-flash",
+    reasoning: "high",
     maxOutputTokens: 32000,
     prompt: `${EXTRACTION_PROMPT}\n\nCONTEXT (document head, for understanding columns/units — do NOT extract):\n${context}\n\nEXTRACT (emit rows ONLY for these lines):\n${chunk}`,
   })
