@@ -70,6 +70,9 @@ const searchNormalize = (input: string) => {
 const searchMatch = (needle: string, ...hay: (string | null | undefined)[]) =>
   hay.some((h) => h && searchNormalize(h).includes(needle))
 
+// ԱԱՀ added below the totals, as at the bottom of the Ծավալաթերթ file
+const VAT_RATE = 0.2
+
 const nf = (n: number) =>
   new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n)
 
@@ -142,9 +145,18 @@ export function VolumeSheetSection({
       }
       const [rowsRes, docsRes] = await Promise.all([
         supabase.from("volume_sheet_row").select("*").eq("sheet_id", sheetData.id).order("seq"),
-        supabase.from("completion_doc").select("*").eq("sheet_id", sheetData.id).order("doc_no"),
+        supabase.from("completion_doc").select("*").eq("sheet_id", sheetData.id).order("doc_no").order("id"),
       ])
-      const docList = (docsRes.data || []) as CompletionDoc[]
+      let docList = (docsRes.data || []) as CompletionDoc[]
+      // older data may have gaps or duplicate numbers: bring it back to 1..N
+      if (docList.some((d, i) => d.doc_no !== i + 1)) {
+        try {
+          await renumberDocs(sheetData.id)
+          docList = docList.map((d, i) => ({ ...d, doc_no: i + 1 }))
+        } catch (error: any) {
+          console.error("Renumber error:", error)
+        }
+      }
       setRows((rowsRes.data || []) as SheetRow[])
       setDocs(docList)
       // a deep-linked doc that no longer exists falls back to the sheet
@@ -384,7 +396,8 @@ export function VolumeSheetSection({
     timerRef.current = setTimeout(() => flushAutosave(), 800)
   }
 
-  const closeEditor = async () => {
+  // nextTab: where to go afterwards (default: the act that was edited)
+  const closeEditor = async (nextTab?: string) => {
     if (timerRef.current) clearTimeout(timerRef.current)
     await flushAutosave()
     // a new doc that ended up empty is discarded
@@ -403,8 +416,18 @@ export function VolumeSheetSection({
     createDocRef.current = null
     setEditingDocId(null)
     setAutosaveStatus("idle")
-    setActiveTab(target ? `doc-${target}` : "sheet")
+    setActiveTab(nextTab ?? (target ? `doc-${target}` : "sheet"))
     fetchAll()
+  }
+
+  // Leaving the editor through the tab bar closes it like "Փակել" does, so
+  // pending edits are saved and a just-created act shows up in the tab bar
+  const switchTab = (tab: string) => {
+    if (activeTab === "new" || editingDocId !== null) {
+      closeEditor(tab)
+      return
+    }
+    setActiveTab(tab)
   }
 
   const uploadSignedPdf = async (doc: CompletionDoc, file: File) => {
@@ -440,11 +463,48 @@ export function VolumeSheetSection({
     }
   }
 
+  // Acts are always numbered 1..N in creation order; renumbers those out of
+  // place (after a delete, or older gaps/duplicates)
+  const renumberDocs = async (sheetId: number) => {
+    const { data, error } = await supabase
+      .from("completion_doc")
+      .select("id, doc_no")
+      .eq("sheet_id", sheetId)
+      .order("doc_no")
+      .order("id")
+    if (error) throw error
+    const results = await Promise.all(
+      (data || [])
+        .map((d, i) => ({ id: d.id, doc_no: i + 1, changed: d.doc_no !== i + 1 }))
+        .filter((d) => d.changed)
+        .map((d) => supabase.from("completion_doc").update({ doc_no: d.doc_no }).eq("id", d.id))
+    )
+    const failed = results.find((r) => r.error)
+    if (failed?.error) throw failed.error
+  }
+
   const deleteDoc = async (docId: number) => {
+    const doc = docs.find((d) => d.id === docId)
+    // renumbering would change the number of an already signed later act
+    const signedAfter = doc && docs.find((d) => d.doc_no > doc.doc_no && d.checked_at)
+    if (signedAfter) {
+      toast({
+        title: "Հնարավոր չէ ջնջել",
+        description: `Կատարողական ${signedAfter.doc_no}-ն արդեն ստորագրված է, դրա համարը չի կարող փոխվել`,
+        variant: "destructive",
+      })
+      setDeleteDocId(null)
+      return
+    }
     const { error } = await supabase.from("completion_doc").delete().eq("id", docId)
     if (error) {
       toast({ title: "Սխալ", description: error.message, variant: "destructive" })
     } else {
+      try {
+        await renumberDocs(sheet!.id)
+      } catch (e: any) {
+        toast({ title: "Սխալ", description: e?.message || "Համարակալումը ձախողվեց", variant: "destructive" })
+      }
       toast({ title: "Ջնջվեց" })
       setActiveTab("sheet")
       fetchAll()
@@ -567,7 +627,24 @@ export function VolumeSheetSection({
   // screen-high box; opaque backgrounds and inset shadows stand in for the
   // collapsed borders, which don't travel with sticky cells
   const thSticky = th.replace("bg-muted/60", "bg-muted") + " sticky top-0 z-10 shadow-[inset_0_-1px_0_hsl(var(--border))]"
-  const footSticky = " sticky bottom-0 z-10 bg-muted shadow-[inset_0_1px_0_hsl(var(--border))]"
+
+  // Ընդամենը / ԱԱՀ 20% / Ընդամենը rows; `sticky` styles them for the frozen
+  // tfoot of the act editor (the tfoot itself is the sticky element there)
+  const totalRows = (total: number, labelSpan: number, trailing: number, sticky = false) =>
+    [
+      { label: "Ընդամենը", value: total },
+      { label: `ԱԱՀ ${VAT_RATE * 100}%`, value: total * VAT_RATE },
+      { label: "Ընդամենը", value: total * (1 + VAT_RATE) },
+    ].map(({ label, value }, i) => {
+      const bg = sticky ? " bg-muted" + (i === 0 ? " shadow-[inset_0_1px_0_hsl(var(--border))]" : "") : ""
+      return (
+        <tr key={i}>
+          <td colSpan={labelSpan} className={td + " font-semibold text-right" + bg}>{label}</td>
+          <td className={tdNum + (i === 1 ? "" : " font-bold") + bg}>{nf(value)}</td>
+          {trailing > 0 && <td colSpan={trailing} className={td + bg} />}
+        </tr>
+      )
+    })
 
   const groupRow = (r: SheetRow, colSpan: number) => (
     <tr key={r.id} className={r.kind === "group" ? "bg-primary/10" : "bg-muted/50"}>
@@ -639,7 +716,7 @@ export function VolumeSheetSection({
             {autosaveStatus === "saving" && (<><Loader2 className="h-3 w-3 animate-spin" /> Պահպանվում է…</>)}
             {autosaveStatus === "saved" && <span className="text-green-600">Պահպանված ✓</span>}
           </span>
-          <Button size="sm" onClick={closeEditor}>Փակել</Button>
+          <Button size="sm" onClick={() => closeEditor()}>Փակել</Button>
         </div>
       </div>
       <div className="overflow-auto max-h-[calc(100dvh-12rem)]">
@@ -711,13 +788,8 @@ export function VolumeSheetSection({
               )
             })}
           </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={8} className={td + " font-semibold text-right" + footSticky}>Ընդամենը</td>
-              <td className={tdNum + " font-bold" + footSticky}>
-                {nf(itemRows.reduce((s, r) => s + parseFormattedNumber(draft.get(r.id) || "") * (r.price || 0), 0))}
-              </td>
-            </tr>
+          <tfoot className="sticky bottom-0 z-10">
+            {totalRows(itemRows.reduce((s, r) => s + parseFormattedNumber(draft.get(r.id) || "") * (r.price || 0), 0), 8, 0, true)}
           </tfoot>
         </table>
       </div>
@@ -740,7 +812,7 @@ export function VolumeSheetSection({
       <div className="flex items-center gap-1 border-b overflow-x-auto">
         <button
           className={`px-3 py-1.5 text-sm whitespace-nowrap border-b-2 -mb-px ${activeTab === "sheet" ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-          onClick={() => { setEditingDocId(null); setActiveTab("sheet") }}
+          onClick={() => switchTab("sheet")}
         >
           Ծավալաթերթ
         </button>
@@ -748,7 +820,7 @@ export function VolumeSheetSection({
           <button
             key={d.id}
             className={`px-3 py-1.5 text-sm whitespace-nowrap border-b-2 -mb-px ${activeTab === `doc-${d.id}` ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-            onClick={() => { setEditingDocId(null); setActiveTab(`doc-${d.id}`) }}
+            onClick={() => switchTab(`doc-${d.id}`)}
           >
             <span
               className={`inline-block h-2.5 w-2.5 rounded-full mr-1.5 align-middle ${d.checked_at ? "bg-green-500" : "bg-red-500"}`}
@@ -829,13 +901,7 @@ export function VolumeSheetSection({
                 })}
               </tbody>
               <tfoot>
-                <tr>
-                  <td colSpan={6} className={td + " font-semibold text-right"}>Ընդամենը</td>
-                  <td className={tdNum + " font-bold"}>
-                    {nf(itemRows.reduce((s, r) => s + (r.qty || 0) * (r.price || 0), 0))}
-                  </td>
-                  <td className={td} />
-                </tr>
+                {totalRows(itemRows.reduce((s, r) => s + (r.qty || 0) * (r.price || 0), 0), 6, 1)}
               </tfoot>
             </table>
           </div>
@@ -965,16 +1031,10 @@ export function VolumeSheetSection({
                   })}
                 </tbody>
                 <tfoot>
-                  <tr>
-                    <td colSpan={7} className={td + " font-semibold text-right"}>Ընդամենը</td>
-                    <td className={tdNum + " font-bold"}>
-                      {nf(Array.from(thisDoc.values()).reduce((s, dr) => {
-                        const r = rows.find((x) => x.id === dr.row_id)
-                        return s + dr.qty * (r?.price || 0)
-                      }, 0))}
-                    </td>
-                    <td className={td} />
-                  </tr>
+                  {totalRows(Array.from(thisDoc.values()).reduce((s, dr) => {
+                    const r = rows.find((x) => x.id === dr.row_id)
+                    return s + dr.qty * (r?.price || 0)
+                  }, 0), 7, 1)}
                 </tfoot>
               </table>
             </div>
@@ -1026,7 +1086,7 @@ export function VolumeSheetSection({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Ջնջե՞լ կատարողականը</DialogTitle>
-            <DialogDescription>Փաստաթուղթը կջնջվի, մնացորդները կվերահաշվարկվեն։</DialogDescription>
+            <DialogDescription>Փաստաթուղթը կջնջվի, մնացորդները կվերահաշվարկվեն, հաջորդ կատարողականները կվերահամարակալվեն։</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteDocId(null)}>Չեղարկել</Button>
