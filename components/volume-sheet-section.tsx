@@ -20,7 +20,8 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { Loader2, Upload, Plus, Trash2, FileSpreadsheet, Download, Pencil, ArrowDownToLine, FileCheck, ExternalLink } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import { Badge, badgeVariants } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 
 interface SheetRow {
   id: number
@@ -340,8 +341,23 @@ export function VolumeSheetSection({
     return doc.id as number
   }
 
+  // A line may not exceed what the Ծավալաթերթ has left after the other acts
+  const exceedsRemaining = (r: SheetRow, qty: number, prev: number) => qty > (r.qty || 0) - prev + 1e-9
+
+  // Draft lines currently over that limit (never saved)
+  const overRowIds = () => {
+    const prev = doneByRow(editingDocId ?? newDocIdRef.current ?? undefined)
+    return new Set(
+      itemRows
+        .filter((r) => exceedsRemaining(r, parseFormattedNumber(draftRef.current.get(r.id) || ""), prev.get(r.id) || 0))
+        .map((r) => r.id)
+    )
+  }
+
   const flushAutosave = async () => {
-    const dirty = Array.from(dirtyRef.current)
+    // over-limit values are skipped; editing them again marks them dirty anew
+    const over = overRowIds()
+    const dirty = Array.from(dirtyRef.current).filter((id) => !over.has(id))
     dirtyRef.current = new Set()
     if (dirty.length === 0) return
     setAutosaveStatus("saving")
@@ -400,6 +416,14 @@ export function VolumeSheetSection({
   const closeEditor = async (nextTab?: string) => {
     if (timerRef.current) clearTimeout(timerRef.current)
     await flushAutosave()
+    const skipped = overRowIds().size
+    if (skipped > 0) {
+      toast({
+        title: "Չպահպանված տողեր",
+        description: `${skipped} տողի քանակը գերազանցում է Ծավալաթերթի մնացորդը և չի պահպանվել`,
+        variant: "destructive",
+      })
+    }
     // a new doc that ended up empty is discarded
     if (!editingDocId && newDocIdRef.current) {
       const { count } = await supabase
@@ -701,10 +725,29 @@ export function VolumeSheetSection({
   }
 
   const doneAll = doneByRow()
+
+  // Act totals for the tab badges (sheet prices, as in the act view)
+  const priceByRow = new Map(rows.map((r) => [r.id, r.price || 0]))
+  const docTotals = new Map<number, number>()
+  for (const dr of docRows) {
+    docTotals.set(dr.doc_id, (docTotals.get(dr.doc_id) || 0) + dr.qty * (priceByRow.get(dr.row_id) || 0))
+  }
+  const draftTotal = itemRows.reduce((s, r) => s + parseFormattedNumber(draft.get(r.id) || "") * (r.price || 0), 0)
+  // shows the total incl. ԱԱՀ, like the act's last "Ընդամենը" row
+  const totalBadge = (total: number) => (
+    <span
+      className={cn(badgeVariants({ variant: "secondary" }), "mt-0.5 px-1.5 py-0 text-[10px] font-medium tabular-nums")}
+      title={`Առանց ԱԱՀ՝ ${nf(total)} ֏ · ԱԱՀ ${VAT_RATE * 100}%՝ ${nf(total * VAT_RATE)} ֏`}
+    >
+      {nf(Math.round(total * (1 + VAT_RATE)))} ֏
+    </span>
+  )
   const isEditorOpen = activeTab === "new" || editingDocId !== null
   const editorPrev = doneByRow(editingDocId ?? newDocIdRef.current ?? undefined)
 
   // ---- draft editor (new doc or editing an existing one) ----
+  const editorOver = isEditorOpen ? overRowIds().size : 0
+
   const renderEditor = () => (
     <div className="space-y-2">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -713,8 +756,12 @@ export function VolumeSheetSection({
         </p>
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground flex items-center gap-1">
-            {autosaveStatus === "saving" && (<><Loader2 className="h-3 w-3 animate-spin" /> Պահպանվում է…</>)}
-            {autosaveStatus === "saved" && <span className="text-green-600">Պահպանված ✓</span>}
+            {editorOver > 0 ? (
+              <span className="text-red-600">{editorOver} տող չի պահպանվում՝ գերազանցում է մնացորդը</span>
+            ) : (<>
+              {autosaveStatus === "saving" && (<><Loader2 className="h-3 w-3 animate-spin" /> Պահպանվում է…</>)}
+              {autosaveStatus === "saved" && <span className="text-green-600">Պահպանված ✓</span>}
+            </>)}
           </span>
           <Button size="sm" onClick={() => closeEditor()}>Փակել</Button>
         </div>
@@ -742,7 +789,7 @@ export function VolumeSheetSection({
               const remaining = (r.qty || 0) - prev
               const v = draft.get(r.id) || ""
               const qtyNum = parseFormattedNumber(v)
-              const over = qtyNum > remaining + 1e-9
+              const over = exceedsRemaining(r, qtyNum, prev)
               return (
                 <tr key={r.id} className={remaining <= 0 && !v ? "opacity-50" : "hover:bg-accent/40"}>
                   <td className={tdNum}>{r.number}</td>
@@ -755,6 +802,7 @@ export function VolumeSheetSection({
                     <div className="flex items-center gap-0.5">
                       <Input
                         className={`h-6 text-[11px] px-1 text-right ${over ? "border-red-500" : ""}`}
+                        title={over ? `Չի պահպանվի՝ առավելագույնը ${nf(Math.max(remaining, 0))}` : undefined}
                         value={v}
                         onChange={(e) => {
                           const next = new Map(draft)
@@ -789,7 +837,7 @@ export function VolumeSheetSection({
             })}
           </tbody>
           <tfoot className="sticky bottom-0 z-10">
-            {totalRows(itemRows.reduce((s, r) => s + parseFormattedNumber(draft.get(r.id) || "") * (r.price || 0), 0), 8, 0, true)}
+            {totalRows(draftTotal, 8, 0, true)}
           </tfoot>
         </table>
       </div>
@@ -809,7 +857,7 @@ export function VolumeSheetSection({
       </div>
 
       {/* Horizontal tab bar: sheet + completion docs + add */}
-      <div className="flex items-center gap-1 border-b overflow-x-auto">
+      <div className="flex items-end gap-1 border-b overflow-x-auto">
         <button
           className={`px-3 py-1.5 text-sm whitespace-nowrap border-b-2 -mb-px ${activeTab === "sheet" ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           onClick={() => switchTab("sheet")}
@@ -819,18 +867,22 @@ export function VolumeSheetSection({
         {docs.map((d) => (
           <button
             key={d.id}
-            className={`px-3 py-1.5 text-sm whitespace-nowrap border-b-2 -mb-px ${activeTab === `doc-${d.id}` ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            className={`px-3 py-1.5 text-sm whitespace-nowrap border-b-2 -mb-px flex flex-col items-start ${activeTab === `doc-${d.id}` ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
             onClick={() => switchTab(`doc-${d.id}`)}
           >
-            <span
-              className={`inline-block h-2.5 w-2.5 rounded-full mr-1.5 align-middle ${d.checked_at ? "bg-green-500" : "bg-red-500"}`}
-            />
-            Կատարողական {d.doc_no}
+            <span>
+              <span
+                className={`inline-block h-2.5 w-2.5 rounded-full mr-1.5 align-middle ${d.checked_at ? "bg-green-500" : "bg-red-500"}`}
+              />
+              Կատարողական {d.doc_no}
+            </span>
+            {totalBadge(docTotals.get(d.id) || 0)}
           </button>
         ))}
         {activeTab === "new" ? (
-          <span className="px-3 py-1.5 text-sm whitespace-nowrap border-b-2 -mb-px border-primary font-medium">
-            Նոր կատարողական
+          <span className="px-3 py-1.5 text-sm whitespace-nowrap border-b-2 -mb-px border-primary font-medium flex flex-col items-start">
+            <span>Նոր կատարողական</span>
+            {totalBadge(draftTotal)}
           </span>
         ) : (
           <button
