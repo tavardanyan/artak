@@ -88,6 +88,7 @@ import { PartnerEditDrawer } from "@/components/partner-edit-drawer"
 import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
 import { CreateTransactionDrawer } from "@/components/create-transaction-drawer"
 import { VolumeSheetSection } from "@/components/volume-sheet-section"
+import { CompletionDocsCard } from "@/components/completion-docs-card"
 import { fetchStaffPositions } from "@/lib/utils/positions"
 
 interface Project {
@@ -329,6 +330,8 @@ export default function ProjectPageClient({
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState(initialTab || "overview")
+  // Կատարողական to open when the Ծավալաթերթ tab mounts (deep link or overview list)
+  const [volumeDocId, setVolumeDocId] = useState(initialDocId)
 
   // Keep the selected tab visible in the horizontally-scrollable tab bar
   useEffect(() => {
@@ -976,7 +979,7 @@ export default function ProjectPageClient({
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => { setVolumeDocId(undefined); setActiveTab(v) }}>
         <div
           className="-mx-4 sm:mx-0 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
         >
@@ -1326,6 +1329,11 @@ export default function ProjectPageClient({
               </div>
             )
           })()}
+
+          <CompletionDocsCard
+            projectId={parseInt(projectId)}
+            onOpen={(docId) => { setVolumeDocId(docId); setActiveTab("volume") }}
+          />
 
           {/* Date Overview */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -2114,7 +2122,7 @@ export default function ProjectPageClient({
 
         {/* Documents Tab */}
         <TabsContent value="volume" className="space-y-4">
-          <VolumeSheetSection projectId={parseInt(projectId)} projectName={project.name} initialDocId={initialDocId} />
+          <VolumeSheetSection projectId={parseInt(projectId)} projectName={project.name} initialDocId={volumeDocId} />
         </TabsContent>
 
         <TabsContent value="documents" className="space-y-4">

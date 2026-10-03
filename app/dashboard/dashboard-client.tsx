@@ -22,18 +22,7 @@ export interface ProjectSummary {
   supplier_debt_real: number
   supplier_debt_ximichit: number
   warehouse_stock_value: number
-  completion_docs: CompletionDocSummary[]
 }
-
-export interface CompletionDocSummary {
-  id: number
-  doc_no: number
-  created_at: string
-  checked_at: string | null
-}
-
-// Latest Կատարողական acts listed on a project card
-const MAX_CARD_DOCS = 5
 
 export interface DashboardTask {
   id: number
@@ -121,87 +110,45 @@ export default function DashboardClient({ projects, initialTasks }: Props) {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
               const expenses = p.tx_outcome + p.supplier_debt_real
-              const shownDocs = p.completion_docs.slice(-MAX_CARD_DOCS).reverse()
-              const hiddenDocs = p.completion_docs.length - shownDocs.length
               return (
-                // The title link is stretched over the whole card; act links
-                // sit above it (z-10) so they open their own Կատարողական
-                <Card key={p.id} className="relative hover:bg-accent/30 transition-colors h-full">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <CardTitle className="text-base truncate">
-                          <Link href={`/dashboard/projects/${p.id}`} className="after:absolute after:inset-0">
-                            {p.name}
-                          </Link>
-                        </CardTitle>
-                        <p className="text-xs text-muted-foreground mt-1">{p.code}</p>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {isAdmin && (<>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Պայմանագրային արժեք</span>
-                      <span className="font-medium">{p.budget ? formatCurrency(p.budget) : "-"}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Մուտքեր</span>
-                      <span className="font-medium text-green-600">{formatCurrency(p.tx_income)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Ծախսեր</span>
-                      <span className="font-medium text-red-600">{formatCurrency(expenses)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Մնում է վճարել</span>
-                      <span className={cn("font-medium", p.contracts_remaining > 0 ? "text-red-600" : "text-green-600")}>
-                        {formatCurrency(p.contracts_remaining)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm pt-2 border-t">
-                      <span className="text-muted-foreground">Պահեստի արժեք</span>
-                      <span className="font-bold">{formatCurrency(p.warehouse_stock_value)}</span>
-                    </div>
-                    </>)}
-                    {p.completion_docs.length > 0 && (
-                      <div className={cn("space-y-1", isAdmin && "pt-2 border-t")}>
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>Կատարողականներ</span>
-                          <span>
-                            {p.completion_docs.filter((d) => d.checked_at).length}/{p.completion_docs.length} ստուգված
-                          </span>
+                <Link key={p.id} href={`/dashboard/projects/${p.id}`}>
+                  <Card className="hover:bg-accent/30 transition-colors cursor-pointer h-full">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <CardTitle className="text-base truncate">{p.name}</CardTitle>
+                          <p className="text-xs text-muted-foreground mt-1">{p.code}</p>
                         </div>
-                        {shownDocs.map((d) => (
-                          <Link
-                            key={d.id}
-                            href={`/dashboard/projects/${p.id}?tab=volume&doc=${d.id}`}
-                            className="relative z-10 flex items-center justify-between gap-2 text-sm rounded px-1.5 py-0.5 -mx-1.5 hover:bg-accent"
-                          >
-                            <span className="flex items-center gap-1.5 min-w-0">
-                              <span className={cn("h-2 w-2 rounded-full shrink-0", d.checked_at ? "bg-green-500" : "bg-red-500")} />
-                              <span className="truncate">Կատարողական {d.doc_no}</span>
-                              <span className="text-xs text-muted-foreground shrink-0">
-                                {new Date(d.created_at).toLocaleDateString("en-GB")}
-                              </span>
-                            </span>
-                            <Badge variant={d.checked_at ? "success" : "error"} className="shrink-0 px-1.5 text-[10px]">
-                              {d.checked_at ? "Ստուգված" : "Չստուգված"}
-                            </Badge>
-                          </Link>
-                        ))}
-                        {hiddenDocs > 0 && (
-                          <Link
-                            href={`/dashboard/projects/${p.id}?tab=volume`}
-                            className="relative z-10 block text-xs text-muted-foreground hover:text-foreground"
-                          >
-                            ևս {hiddenDocs}…
-                          </Link>
-                        )}
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {isAdmin && (<>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Պայմանագրային արժեք</span>
+                        <span className="font-medium">{p.budget ? formatCurrency(p.budget) : "-"}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Մուտքեր</span>
+                        <span className="font-medium text-green-600">{formatCurrency(p.tx_income)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Ծախսեր</span>
+                        <span className="font-medium text-red-600">{formatCurrency(expenses)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Մնում է վճարել</span>
+                        <span className={cn("font-medium", p.contracts_remaining > 0 ? "text-red-600" : "text-green-600")}>
+                          {formatCurrency(p.contracts_remaining)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm pt-2 border-t">
+                        <span className="text-muted-foreground">Պահեստի արժեք</span>
+                        <span className="font-bold">{formatCurrency(p.warehouse_stock_value)}</span>
+                      </div>
+                      </>)}
+                    </CardContent>
+                  </Card>
+                </Link>
               )
             })}
           </div>
