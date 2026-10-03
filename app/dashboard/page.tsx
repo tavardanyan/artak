@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
-import DashboardClient, { ProjectSummary, DashboardTask } from "./dashboard-client"
+import DashboardClient, { ProjectSummary, DashboardTask, CompletionDocSummary } from "./dashboard-client"
 
 export const dynamic = "force-dynamic"
 
@@ -16,12 +16,24 @@ export default async function DashboardPage() {
 
   const projects: ProjectSummary[] = []
   if (latestProjects && latestProjects.length > 0) {
-    const dashboards = await Promise.all(
-      latestProjects.map(async (p) => {
-        const { data } = await supabase.rpc("get_project_dashboard", { p_id: p.id })
-        return { project: p, dashboard: data }
-      })
-    )
+    const [dashboards, { data: sheets }] = await Promise.all([
+      Promise.all(
+        latestProjects.map(async (p) => {
+          const { data } = await supabase.rpc("get_project_dashboard", { p_id: p.id })
+          return { project: p, dashboard: data }
+        })
+      ),
+      // Կատարողական acts of these projects (via their Ծավալաթերթ)
+      supabase
+        .from("volume_sheet")
+        .select("project_id, completion_doc(id, doc_no, created_at, checked_at)")
+        .in("project_id", latestProjects.map((p) => p.id)),
+    ])
+    const docsByProject = new Map<number, CompletionDocSummary[]>()
+    for (const s of sheets || []) {
+      const docs = (s.completion_doc || []) as CompletionDocSummary[]
+      docsByProject.set(s.project_id, docs.sort((a, b) => a.doc_no - b.doc_no))
+    }
     for (const { project, dashboard } of dashboards) {
       if (!dashboard) continue
       projects.push({
@@ -36,6 +48,7 @@ export default async function DashboardPage() {
         supplier_debt_real: dashboard.supplier_debt_real ?? 0,
         supplier_debt_ximichit: dashboard.supplier_debt_ximichit ?? 0,
         warehouse_stock_value: dashboard.warehouse_stock_value ?? 0,
+        completion_docs: docsByProject.get(project.id) ?? [],
       })
     }
   }

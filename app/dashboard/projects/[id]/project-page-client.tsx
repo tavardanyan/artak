@@ -299,9 +299,13 @@ const formatDateTime = (dateString: string) => {
 export default function ProjectPageClient({
   projectId,
   initialDashboard,
+  initialTab,
+  initialDocId,
 }: {
   projectId: string
   initialDashboard: ProjectDashboardData
+  initialTab?: string
+  initialDocId?: number
 }) {
   const supabase = createClient()
   const { isAdmin } = useRole()
@@ -324,7 +328,7 @@ export default function ProjectPageClient({
   const [staff, setStaff] = useState<Person[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState("overview")
+  const [activeTab, setActiveTab] = useState(initialTab || "overview")
 
   // Keep the selected tab visible in the horizontally-scrollable tab bar
   useEffect(() => {
@@ -2110,7 +2114,7 @@ export default function ProjectPageClient({
 
         {/* Documents Tab */}
         <TabsContent value="volume" className="space-y-4">
-          <VolumeSheetSection projectId={parseInt(projectId)} />
+          <VolumeSheetSection projectId={parseInt(projectId)} projectName={project.name} initialDocId={initialDocId} />
         </TabsContent>
 
         <TabsContent value="documents" className="space-y-4">

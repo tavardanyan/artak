@@ -79,13 +79,21 @@ const posNumberInput = (v: string) => handleNumberInput(v).replace(/^-+/, "")
 // Ծավալաթերթ: one AI-extracted bill of quantities per project, plus
 // Կատարողական acts recording actually done qty per line (price is always
 // the sheet price and is never editable).
-export function VolumeSheetSection({ projectId }: { projectId: number }) {
+export function VolumeSheetSection({
+  projectId,
+  projectName,
+  initialDocId,
+}: {
+  projectId: number
+  projectName?: string
+  initialDocId?: number
+}) {
   const [loading, setLoading] = useState(true)
   const [sheet, setSheet] = useState<{ id: number; file_name: string | null; file_path: string | null; created_at: string } | null>(null)
   const [rows, setRows] = useState<SheetRow[]>([])
   const [docs, setDocs] = useState<CompletionDoc[]>([])
   const [docRows, setDocRows] = useState<DocRow[]>([])
-  const [activeTab, setActiveTab] = useState<string>("sheet")
+  const [activeTab, setActiveTab] = useState<string>(initialDocId ? `doc-${initialDocId}` : "sheet")
   const [extracting, setExtracting] = useState(false)
   const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -96,6 +104,7 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
   // a brand-new doc is created lazily on the first non-empty change
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved">("idle")
   const newDocIdRef = useRef<number | null>(null)
+  const createDocRef = useRef<Promise<number> | null>(null)
   const dirtyRef = useRef<Set<number>>(new Set())
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const draftRef = useRef<Map<number, string>>(new Map())
@@ -138,6 +147,8 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
       const docList = (docsRes.data || []) as CompletionDoc[]
       setRows((rowsRes.data || []) as SheetRow[])
       setDocs(docList)
+      // a deep-linked doc that no longer exists falls back to the sheet
+      setActiveTab((t) => (t.startsWith("doc-") && !docList.some((d) => `doc-${d.id}` === t) ? "sheet" : t))
       if (docList.length > 0) {
         const { data: drData } = await supabase
           .from("completion_doc_row")
@@ -280,10 +291,41 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
       setActiveTab("new")
     }
     newDocIdRef.current = null
+    createDocRef.current = null
     dirtyRef.current = new Set()
     setAutosaveStatus("idle")
     draftRef.current = d
     setDraft(d)
+  }
+
+  // "+": save anything still pending and reload the acts first, so the tab
+  // bar is current before a new act is started
+  const startNewDoc = async () => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    await flushAutosave()
+    await fetchAll()
+    openEditor()
+  }
+
+  // The number is read from the database right before the insert (local
+  // state can be stale), so a new act always gets the next free doc_no
+  const createDoc = async () => {
+    const { data: last, error: lastErr } = await supabase
+      .from("completion_doc")
+      .select("doc_no")
+      .eq("sheet_id", sheet!.id)
+      .order("doc_no", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (lastErr) throw lastErr
+    const { data: doc, error } = await supabase
+      .from("completion_doc")
+      .insert({ sheet_id: sheet!.id, doc_no: (last?.doc_no ?? 0) + 1 })
+      .select("id")
+      .single()
+    if (error || !doc) throw error || new Error("insert failed")
+    newDocIdRef.current = doc.id
+    return doc.id as number
   }
 
   const flushAutosave = async () => {
@@ -294,15 +336,9 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
     try {
       let docId = editingDocId ?? newDocIdRef.current
       if (!docId) {
-        const docNo = docs.length > 0 ? Math.max(...docs.map((d) => d.doc_no)) + 1 : 1
-        const { data: doc, error } = await supabase
-          .from("completion_doc")
-          .insert({ sheet_id: sheet!.id, doc_no: docNo })
-          .select("id")
-          .single()
-        if (error || !doc) throw error || new Error("insert failed")
-        newDocIdRef.current = doc.id
-        docId = doc.id
+        // overlapping flushes share one insert instead of each creating an act
+        createDocRef.current ??= createDoc()
+        docId = await createDocRef.current
       }
       if (!docId) throw new Error("no doc id")
       const upserts: DocRow[] = []
@@ -335,6 +371,8 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
       setAutosaveStatus("saved")
     } catch (error: any) {
       dirty.forEach((id) => dirtyRef.current.add(id))
+      // a failed insert may be retried on the next flush
+      if (!newDocIdRef.current) createDocRef.current = null
       setAutosaveStatus("idle")
       toast({ title: "Սխալ", description: error?.message || "Ավտոպահպանումը ձախողվեց", variant: "destructive" })
     }
@@ -362,6 +400,7 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
     }
     const target = editingDocId ?? newDocIdRef.current
     newDocIdRef.current = null
+    createDocRef.current = null
     setEditingDocId(null)
     setAutosaveStatus("idle")
     setActiveTab(target ? `doc-${target}` : "sheet")
@@ -508,7 +547,9 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
       const blob = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
       const a = document.createElement("a")
       a.href = URL.createObjectURL(blob)
-      a.download = `Կատարողական-${doc.doc_no}.xlsx`
+      // <project name>-Կատարողական-<number>.xlsx, minus characters file systems reject
+      const prefix = (projectName || "").replace(/[\\/:*?"<>|]+/g, "-").trim()
+      a.download = `${prefix ? `${prefix}-` : ""}Կատարողական-${doc.doc_no}.xlsx`
       a.click()
       URL.revokeObjectURL(a.href)
     } catch (error: any) {
@@ -522,6 +563,11 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
   const th = "border px-2 py-1 text-left text-[11px] font-semibold bg-muted/60 whitespace-nowrap"
   const td = "border px-2 py-0.5 text-[11px] align-top"
   const tdNum = td + " text-right whitespace-nowrap tabular-nums"
+  // Frozen header/total rows (act editor): the table scrolls inside a
+  // screen-high box; opaque backgrounds and inset shadows stand in for the
+  // collapsed borders, which don't travel with sticky cells
+  const thSticky = th.replace("bg-muted/60", "bg-muted") + " sticky top-0 z-10 shadow-[inset_0_-1px_0_hsl(var(--border))]"
+  const footSticky = " sticky bottom-0 z-10 bg-muted shadow-[inset_0_1px_0_hsl(var(--border))]"
 
   const groupRow = (r: SheetRow, colSpan: number) => (
     <tr key={r.id} className={r.kind === "group" ? "bg-primary/10" : "bg-muted/50"}>
@@ -596,19 +642,19 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
           <Button size="sm" onClick={closeEditor}>Փակել</Button>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-auto max-h-[calc(100dvh-12rem)]">
         <table className="w-full border-collapse">
           <thead>
             <tr>
-              <th className={th}>N</th>
-              <th className={th + " w-full"}>Անվանում</th>
-              <th className={th}>Չ/մ</th>
-              <th className={th + " text-right"}>Ծավալ</th>
-              <th className={th + " text-right"}>Կատարված</th>
-              <th className={th + " text-right"}>Մնացորդ</th>
-              <th className={th}>Փաստ. քնկ.</th>
-              <th className={th + " text-right"}>Գին</th>
-              <th className={th + " text-right"}>Գումար</th>
+              <th className={thSticky}>N</th>
+              <th className={thSticky + " w-full"}>Անվանում</th>
+              <th className={thSticky}>Չ/մ</th>
+              <th className={thSticky + " text-right"}>Ծավալ</th>
+              <th className={thSticky + " text-right"}>Կատարված</th>
+              <th className={thSticky + " text-right"}>Մնացորդ</th>
+              <th className={thSticky}>Փաստ. քնկ.</th>
+              <th className={thSticky + " text-right"}>Գին</th>
+              <th className={thSticky + " text-right"}>Գումար</th>
             </tr>
           </thead>
           <tbody>
@@ -667,8 +713,8 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={8} className={td + " font-semibold text-right"}>Ընդամենը</td>
-              <td className={tdNum + " font-bold"}>
+              <td colSpan={8} className={td + " font-semibold text-right" + footSticky}>Ընդամենը</td>
+              <td className={tdNum + " font-bold" + footSticky}>
                 {nf(itemRows.reduce((s, r) => s + parseFormattedNumber(draft.get(r.id) || "") * (r.price || 0), 0))}
               </td>
             </tr>
@@ -717,7 +763,7 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
         ) : (
           <button
             className="px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground whitespace-nowrap"
-            onClick={() => openEditor()}
+            onClick={startNewDoc}
             title="Ավելացնել կատարողական"
           >
             <Plus className="h-4 w-4" />
