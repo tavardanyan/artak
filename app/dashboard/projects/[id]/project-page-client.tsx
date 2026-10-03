@@ -942,6 +942,14 @@ export default function ProjectPageClient({
     )
   }
 
+  // Կատարողական list (overview); clicking an act opens it in the Ծավալաթերթ tab
+  const completionDocsCard = (
+    <CompletionDocsCard
+      projectId={parseInt(projectId)}
+      onOpen={(docId) => { setVolumeDocId(docId); setActiveTab("volume") }}
+    />
+  )
+
   if (!project) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -1197,7 +1205,7 @@ export default function ProjectPageClient({
             }, 0)
 
             return (
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {/* Contracts by Status */}
                 <Card>
                   <CardHeader className="pb-3">
@@ -1326,14 +1334,14 @@ export default function ProjectPageClient({
                     </div>
                   </CardContent>
                 </Card>
+
+                {completionDocsCard}
               </div>
             )
           })()}
 
-          <CompletionDocsCard
-            projectId={parseInt(projectId)}
-            onOpen={(docId) => { setVolumeDocId(docId); setActiveTab("volume") }}
-          />
+          {/* Non-admins don't get the summary row above, but still see the acts */}
+          {!isAdmin && completionDocsCard}
 
           {/* Date Overview */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

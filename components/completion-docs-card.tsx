@@ -17,7 +17,7 @@ interface CompletionDocSummary {
 // Կատարողական acts of a project with their status (project overview);
 // clicking one opens it in the Ծավալաթերթ tab
 export function CompletionDocsCard({ projectId, onOpen }: { projectId: number; onOpen: (docId: number) => void }) {
-  const [docs, setDocs] = useState<CompletionDocSummary[]>([])
+  const [docs, setDocs] = useState<CompletionDocSummary[] | null>(null)
 
   useEffect(() => {
     createClient()
@@ -31,37 +31,44 @@ export function CompletionDocsCard({ projectId, onOpen }: { projectId: number; o
       })
   }, [projectId])
 
-  if (docs.length === 0) return null
-
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="text-sm font-medium">Կատարողականներ</CardTitle>
-        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          {docs.filter((d) => d.checked_at).length}/{docs.length} ստուգված
-          <FileCheck className="h-4 w-4" />
-        </span>
+        {docs && docs.length > 0 && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <FileCheck className="h-3.5 w-3.5" />
+            {docs.filter((d) => d.checked_at).length}/{docs.length}
+          </span>
+        )}
       </CardHeader>
-      <CardContent className="grid gap-x-6 gap-y-1 md:grid-cols-2 lg:grid-cols-3">
-        {docs.map((d) => (
-          <button
-            key={d.id}
-            type="button"
-            onClick={() => onOpen(d.id)}
-            className="flex items-center justify-between gap-2 text-sm rounded px-2 py-1 -mx-2 hover:bg-accent text-left"
-          >
-            <span className="flex items-center gap-1.5 min-w-0">
-              <span className={cn("h-2 w-2 rounded-full shrink-0", d.checked_at ? "bg-green-500" : "bg-red-500")} />
-              <span className="truncate">Կատարողական {d.doc_no}</span>
-              <span className="text-xs text-muted-foreground shrink-0">
-                {new Date(d.created_at).toLocaleDateString("en-GB")}
-              </span>
-            </span>
-            <span className={cn(badgeVariants({ variant: d.checked_at ? "success" : "error" }), "shrink-0 px-1.5 text-[10px]")}>
-              {d.checked_at ? "Ստուգված" : "Չստուգված"}
-            </span>
-          </button>
-        ))}
+      <CardContent>
+        {docs && docs.length === 0 && <p className="text-sm text-muted-foreground py-2">Կատարողականներ չկան</p>}
+        {docs && docs.length > 0 && (
+          <div className="space-y-1 max-h-[180px] overflow-y-auto">
+            {docs.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => onOpen(d.id)}
+                className="w-full flex items-start justify-between gap-2 text-sm rounded px-1 py-1 hover:bg-accent/50 text-left"
+              >
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5">
+                    <span className={cn("h-2 w-2 rounded-full shrink-0", d.checked_at ? "bg-green-500" : "bg-red-500")} />
+                    <span className="truncate">Կատարողական {d.doc_no}</span>
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {new Date(d.created_at).toLocaleDateString("en-GB")}
+                  </span>
+                </span>
+                <span className={cn(badgeVariants({ variant: d.checked_at ? "success" : "error" }), "shrink-0 px-1.5 text-[10px]")}>
+                  {d.checked_at ? "Ստուգված" : "Չստուգված"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
