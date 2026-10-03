@@ -72,7 +72,7 @@ const searchMatch = (needle: string, ...hay: (string | null | undefined)[]) =>
   hay.some((h) => h && searchNormalize(h).includes(needle))
 
 // ԱԱՀ added below the totals, as at the bottom of the Ծավալաթերթ file
-const VAT_RATE = 0.2
+export const VAT_RATE = 0.2
 
 const nf = (n: number) =>
   new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n)
