@@ -301,7 +301,7 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
 
   const getTransferStatus = (transfer: RelatedTransfer) => {
     if (transfer.rejected_at) {
-      return <Badge variant="destructive">Մերժված</Badge>
+      return <Badge variant="error">Մերժված</Badge>
     }
     if (transfer.acepted_at) {
       return <Badge variant="success">Ընդունված</Badge>

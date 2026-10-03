@@ -392,7 +392,7 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
       return <Badge variant="success">Հաստատված</Badge>
     }
     if (transfer.rejected_at) {
-      return <Badge variant="destructive">Մերժված</Badge>
+      return <Badge variant="error">Մերժված</Badge>
     }
     if (transfer.delivered_at) {
       return <Badge variant="info">Ուղարկված</Badge>

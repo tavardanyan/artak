@@ -137,7 +137,7 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
 
   const getStatusBadge = (transfer: Transfer) => {
     if (transfer.rejected_at) {
-      return <Badge variant="destructive">Մերժված</Badge>
+      return <Badge variant="error">Մերժված</Badge>
     }
     if (transfer.acepted_at) {
       return <Badge variant="success">Ընդունված</Badge>
