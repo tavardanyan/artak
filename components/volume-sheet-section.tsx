@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { handleNumberInput, parseFormattedNumber } from "@/lib/utils/number-format"
+import { firstSheet, removeSheetRows, forceFullRecalc } from "@/lib/utils/xlsx-rows"
 import * as XLSX from "xlsx"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -426,7 +427,7 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
     return n - 1
   }
 
-  const downloadDocXlsx = async (doc: CompletionDoc) => {
+  const downloadDocXlsx = async (doc: CompletionDoc, onlyChanged: boolean) => {
     try {
       if (!sheet?.file_path) {
         toast({
@@ -445,17 +446,8 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
       const JSZip = (await import("jszip")).default
       const zip = await JSZip.loadAsync(buf)
 
-      // Resolve the first sheet's XML path via workbook relations
-      const wbXml = await zip.file("xl/workbook.xml")!.async("string")
-      const relsXml = await zip.file("xl/_rels/workbook.xml.rels")!.async("string")
-      const firstSheetRid = wbXml.match(/<sheet[^>]*r:id="([^"]+)"/)?.[1]
-      const relMatch = firstSheetRid
-        ? relsXml.match(new RegExp(`<Relationship[^>]*Id="${firstSheetRid}"[^>]*Target="([^"]+)"`))
-        : null
-      let target = relMatch?.[1] || "worksheets/sheet1.xml"
-      if (target.startsWith("/")) target = target.slice(1)
-      else if (!target.startsWith("xl/")) target = `xl/${target}`
-      const sheetFile = zip.file(target)
+      const target = await firstSheet(zip)
+      const sheetFile = zip.file(target.path)
       if (!sheetFile) throw new Error("Աղյուսակի XML-ը չի գտնվել")
       let xml = await sheetFile.async("string")
 
@@ -495,7 +487,24 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
         xml = xml.replace(cellRe, `<c${attrs}><v>${newVal}</v></c>`)
       }
 
-      zip.file(target, xml)
+      zip.file(target.path, xml)
+
+      // "Only changed rows" view: delete the rows hidden on screen (untouched
+      // items and headings of untouched sections) so totals cover just the act
+      if (onlyChanged) {
+        const keepHeadings = headingsWithChanges(new Set(thisDoc.keys()))
+        const keep = new Set<number>()
+        const tracked = new Set<number>()
+        for (const r of rows) {
+          if (r.src_row == null) continue
+          tracked.add(r.src_row)
+          if (r.kind === "item" ? thisDoc.has(r.id) : keepHeadings.has(r.id)) keep.add(r.src_row)
+        }
+        const drop = new Set(Array.from(tracked).filter((n) => !keep.has(n)))
+        await removeSheetRows(zip, target, drop, tracked)
+      }
+      await forceFullRecalc(zip)
+
       const blob = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
       const a = document.createElement("a")
       a.href = URL.createObjectURL(blob)
@@ -805,7 +814,7 @@ export function VolumeSheetSection({ projectId }: { projectId: number }) {
                   <Switch id={`vs-all-${d.id}`} checked={showAllRows} onCheckedChange={setShowAllRows} />
                   <Label htmlFor={`vs-all-${d.id}`} className="text-xs cursor-pointer">Ցույց տալ բոլոր տողերը</Label>
                 </div>
-                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => downloadDocXlsx(d)}>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => downloadDocXlsx(d, !showAllRows)}>
                   <Download className="h-3.5 w-3.5 mr-1" />
                   Ներբեռնել
                 </Button>
