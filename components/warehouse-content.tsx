@@ -895,12 +895,12 @@ export function WarehouseContent({ warehouseId, warehouseName, inProject, initia
       return <Badge variant="destructive">Մերժված</Badge>
     }
     if (transfer.acepted_at) {
-      return <Badge variant="outline">Ընդունված</Badge>
+      return <Badge variant="success">Ընդունված</Badge>
     }
     if (transfer.delivered_at) {
-      return <Badge variant="secondary">Ընթացիկ</Badge>
+      return <Badge variant="info">Ընթացիկ</Badge>
     }
-    return <Badge variant="default">Սևագիր</Badge>
+    return <Badge variant="warning">Սևագիր</Badge>
   }
 
   const canModifyTransfer = (transfer: Transfer | null) => {

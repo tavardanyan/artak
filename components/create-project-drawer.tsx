@@ -138,9 +138,9 @@ export function CreateProjectDrawer({ open, onOpenChange, onSuccess }: CreatePro
         .in("id", Array.from(ids))
         .order("name")
       setPartnerWarehouses(whs || [])
-      // Default to first existing warehouse
-      if (whs && whs.length > 0) setWarehouseChoice(whs[0].id.toString())
-      else setWarehouseChoice("new")
+      // Default to a new warehouse — reusing another project's warehouse must be an explicit choice,
+      // otherwise the new project silently shows that project's transfers and stock
+      setWarehouseChoice("new")
     }
     fetchWh()
   }, [partnerId, partners])

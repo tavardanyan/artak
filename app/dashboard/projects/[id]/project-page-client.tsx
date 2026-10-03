@@ -88,6 +88,7 @@ import { PartnerEditDrawer } from "@/components/partner-edit-drawer"
 import { TransactionDetailDrawer } from "@/components/transaction-detail-drawer"
 import { CreateTransactionDrawer } from "@/components/create-transaction-drawer"
 import { VolumeSheetSection } from "@/components/volume-sheet-section"
+import { fetchStaffPositions } from "@/lib/utils/positions"
 
 interface Project {
   id: number
@@ -2320,6 +2321,8 @@ function CreateContractDrawer({
   onSuccess: () => void
 }) {
   const [personId, setPersonId] = useState("")
+  const [positionFilter, setPositionFilter] = useState("all")
+  const [availablePositions, setAvailablePositions] = useState<string[]>([])
   const [status, setStatus] = useState("planned")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
@@ -2370,8 +2373,21 @@ function CreateContractDrawer({
       setServiceHistory(unique)
     }
     fetchServiceHistory()
+    fetchStaffPositions(supabase).then(setAvailablePositions)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  const filteredStaff = staff.filter(
+    (person) => positionFilter === "all" || (person.position || []).includes(positionFilter)
+  )
+
+  // Drop the selected person if they don't hold the newly filtered position
+  const handlePositionFilterChange = (value: string) => {
+    setPositionFilter(value)
+    if (value === "all" || !personId) return
+    const selected = staff.find((p) => p.id.toString() === personId)
+    if (!(selected?.position || []).includes(value)) setPersonId("")
+  }
 
   // Groups belong to (project, person) — refresh the list when the person changes
   useEffect(() => {
@@ -2413,6 +2429,7 @@ function CreateContractDrawer({
 
   const resetForm = () => {
     setPersonId("")
+    setPositionFilter("all")
     setStatus("planned")
     setStartDate("")
     setEndDate("")
@@ -2541,23 +2558,41 @@ function CreateContractDrawer({
               <Label htmlFor="person">
                 Աշխատակից <span className="text-destructive">*</span>
               </Label>
-              <Select value={personId} onValueChange={setPersonId}>
-                <SelectTrigger id="person">
-                  <SelectValue placeholder="Ընտրել աշխատակցին" />
-                </SelectTrigger>
-                <SelectContent>
-                  {staff.map((person) => (
-                    <SelectItem key={person.id} value={person.id.toString()}>
-                      {person.first_name} {person.last_lame || ""}
-                      {person.position && person.position.length > 0 && (
-                        <span className="text-muted-foreground text-xs ml-2">
-                          ({person.position.join(", ")})
-                        </span>
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2">
+                <Select value={positionFilter} onValueChange={handlePositionFilterChange}>
+                  <SelectTrigger className="w-[40%] shrink-0" aria-label="Պաշտոն">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Բոլոր պաշտոնները</SelectItem>
+                    {availablePositions.map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={personId} onValueChange={setPersonId}>
+                  <SelectTrigger id="person" className="flex-1 min-w-0">
+                    <SelectValue placeholder="Ընտրել աշխատակցին" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredStaff.length === 0 && (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        Այս պաշտոնով աշխատակիցներ չկան
+                      </div>
+                    )}
+                    {filteredStaff.map((person) => (
+                      <SelectItem key={person.id} value={person.id.toString()}>
+                        {person.first_name} {person.last_lame || ""}
+                        {person.position && person.position.length > 0 && (
+                          <span className="text-muted-foreground text-xs ml-2">
+                            ({person.position.join(", ")})
+                          </span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -2806,6 +2841,8 @@ function EditContractDrawer({
   onSuccess: () => void
 }) {
   const [personId, setPersonId] = useState(contract.person_id.toString())
+  const [positionFilter, setPositionFilter] = useState("all")
+  const [availablePositions, setAvailablePositions] = useState<string[]>([])
   const [status, setStatus] = useState(contract.status)
   const [startDate, setStartDate] = useState(
     contract.start ? new Date(contract.start).toISOString().split("T")[0] : ""
@@ -2829,6 +2866,8 @@ function EditContractDrawer({
   useEffect(() => {
     if (!open) return
     setPersonId(contract.person_id.toString())
+    setPositionFilter("all")
+    fetchStaffPositions(supabase).then(setAvailablePositions)
     setStatus(contract.status)
     setStartDate(contract.start ? new Date(contract.start).toISOString().split("T")[0] : "")
     setEndDate(contract.end ? new Date(contract.end).toISOString().split("T")[0] : "")
@@ -2865,6 +2904,18 @@ function EditContractDrawer({
     // groupContracts comes from the same fetch as contract — re-init on open is enough
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contract, open])
+
+  const filteredStaff = staff.filter(
+    (person) => positionFilter === "all" || (person.position || []).includes(positionFilter)
+  )
+
+  // Drop the selected person if they don't hold the newly filtered position
+  const handlePositionFilterChange = (value: string) => {
+    setPositionFilter(value)
+    if (value === "all" || !personId) return
+    const selected = staff.find((p) => p.id.toString() === personId)
+    if (!(selected?.position || []).includes(value)) setPersonId("")
+  }
 
   const updateLine = (index: number, field: keyof ContractLine, value: string) => {
     setLines((prev) => {
@@ -3023,23 +3074,41 @@ function EditContractDrawer({
               <Label htmlFor="person">
                 Աշխատակից <span className="text-destructive">*</span>
               </Label>
-              <Select value={personId} onValueChange={setPersonId}>
-                <SelectTrigger id="person">
-                  <SelectValue placeholder="Ընտրել աշխատակցին" />
-                </SelectTrigger>
-                <SelectContent>
-                  {staff.map((person) => (
-                    <SelectItem key={person.id} value={person.id.toString()}>
-                      {person.first_name} {person.last_lame || ""}
-                      {person.position && person.position.length > 0 && (
-                        <span className="text-muted-foreground text-xs ml-2">
-                          ({person.position.join(", ")})
-                        </span>
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2">
+                <Select value={positionFilter} onValueChange={handlePositionFilterChange}>
+                  <SelectTrigger className="w-[40%] shrink-0" aria-label="Պաշտոն">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Բոլոր պաշտոնները</SelectItem>
+                    {availablePositions.map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={personId} onValueChange={setPersonId}>
+                  <SelectTrigger id="person" className="flex-1 min-w-0">
+                    <SelectValue placeholder="Ընտրել աշխատակցին" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredStaff.length === 0 && (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        Այս պաշտոնով աշխատակիցներ չկան
+                      </div>
+                    )}
+                    {filteredStaff.map((person) => (
+                      <SelectItem key={person.id} value={person.id.toString()}>
+                        {person.first_name} {person.last_lame || ""}
+                        {person.position && person.position.length > 0 && (
+                          <span className="text-muted-foreground text-xs ml-2">
+                            ({person.position.join(", ")})
+                          </span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="space-y-2">

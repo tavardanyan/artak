@@ -14,6 +14,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -61,6 +62,8 @@ interface SplitItem {
   originalQty: number
   leftQty: number
   rightQty: number
+  // Raw text of the right qty input, so partial decimals like "1." or "0,5" survive typing
+  rightInput: string
   unit_price: number
   unit_vat: number
 }
@@ -109,6 +112,7 @@ export function SplitTransferModal({
           originalQty: item.qty,
           leftQty: item.qty,
           rightQty: 0,
+          rightInput: "0",
           unit_price: item.unit_price,
           unit_vat: item.unit_vat,
         }))
@@ -135,6 +139,7 @@ export function SplitTransferModal({
       const item = { ...updated[index] }
       if (item.leftQty > 0 && item.rightQty === 0) {
         item.rightQty = item.leftQty
+        item.rightInput = String(item.rightQty)
         item.leftQty = 0
       }
       updated[index] = item
@@ -148,19 +153,40 @@ export function SplitTransferModal({
       const item = { ...updated[index] }
       item.leftQty = item.originalQty
       item.rightQty = 0
+      item.rightInput = "0"
       updated[index] = item
       return updated
     })
   }
 
-  const updateRightQty = (index: number, qty: number) => {
+  // Avoid float artifacts like 2.9999999999 when subtracting decimal quantities
+  const roundQty = (qty: number) => Math.round(qty * 1e6) / 1e6
+
+  const updateRightQty = (index: number, raw: string) => {
+    const normalized = raw.replace(",", ".")
+    if (!/^\d*\.?\d*$/.test(normalized)) return
+
     setSplitItems((prev) => {
       const updated = [...prev]
       const item = { ...updated[index] }
-      const clampedQty = Math.max(0, Math.min(qty, item.originalQty))
-      item.rightQty = clampedQty
-      item.leftQty = item.originalQty - clampedQty
+      const parsed = normalized === "" || normalized === "." ? 0 : Number(normalized)
+      if (parsed > item.originalQty) {
+        item.rightQty = item.originalQty
+        item.rightInput = String(item.originalQty)
+      } else {
+        item.rightQty = parsed
+        item.rightInput = normalized
+      }
+      item.leftQty = roundQty(item.originalQty - item.rightQty)
       updated[index] = item
+      return updated
+    })
+  }
+
+  const normalizeRightInput = (index: number) => {
+    setSplitItems((prev) => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], rightInput: String(updated[index].rightQty) }
       return updated
     })
   }
@@ -317,212 +343,211 @@ export function SplitTransferModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-[1fr_auto_1fr] gap-4 py-4">
-          {/* Left Side */}
-          <div className="space-y-4 min-w-0">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">{"\u0531\u057c\u0561\u057b\u056b\u0576 \u057f\u0565\u0572\u0561\u0583\u0578\u056d\u0578\u0582\u0574"}</h3>
-              <Badge variant="outline">#{transferId}</Badge>
-            </div>
-
-            {/* Left Warehouse */}
-            <div className="space-y-2">
-              <Label>{"\u0534\u0565\u057a\u056b \u057a\u0561\u0570\u0565\u057d\u057f"}</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                    <span className="truncate">
-                      {filteredWarehouses.find(w => w.id === leftWarehouse)?.name || "\u0538\u0576\u057f\u0580\u0565\u0584 \u057a\u0561\u0570\u0565\u057d\u057f\u0568"}
-                    </span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
-                  <Command>
-                    <CommandInput placeholder={"\u0548\u0580\u0578\u0576\u0565\u056c \u057a\u0561\u0570\u0565\u057d\u057f..."} />
-                    <CommandList>
-                      <CommandEmpty>{"\u054a\u0561\u0570\u0565\u057d\u057f \u0579\u056b \u0563\u057f\u0576\u057e\u0565\u056c"}</CommandEmpty>
-                      <CommandGroup>
-                        {filteredWarehouses.map((w) => (
-                          <CommandItem key={w.id} value={w.name} onSelect={() => setLeftWarehouse(w.id)}>
-                            <Check className={cn("mr-2 h-4 w-4", leftWarehouse === w.id ? "opacity-100" : "opacity-0")} />
-                            {w.name}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {/* Left Status */}
-            <div className="space-y-2">
-              <Label>{"\u053f\u0561\u0580\u0563\u0561\u057e\u056b\u0573\u0561\u056f"}</Label>
-              <Select value={leftStatus} onValueChange={(v) => setLeftStatus(v as TransferStatus)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {statusOptions.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Left Items */}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{"\u0531\u0576\u057e\u0561\u0576\u0578\u0582\u0574"}</TableHead>
-                  <TableHead className="text-right w-[80px]">{"\u0554\u0576\u056f."}</TableHead>
-                  <TableHead className="text-right">{"\u0538\u0576\u0564\u0561\u0574\u0565\u0576\u0568"}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {splitItems.map((item, index) => (
-                  <TableRow key={item.item_id} className={cn("h-[49px]", item.leftQty === 0 && "opacity-40")}>
-                    <TableCell className="text-sm">{item.name}</TableCell>
-                    <TableCell className="text-right text-sm font-medium">
-                      {item.leftQty}
-                      {item.unit && <span className="text-muted-foreground text-xs ml-1">{item.unit}</span>}
-                    </TableCell>
-                    <TableCell className="text-right text-sm">
-                      {((item.unit_price + item.unit_vat) * item.leftQty).toLocaleString()} ֏
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-
-            <div className="flex justify-between items-center pt-2 border-t">
-              <span className="font-medium">{"\u0538\u0576\u0564\u0561\u0574\u0565\u0576\u0568"}</span>
-              <span className="font-bold">{calcTotal(splitItems, "left").toLocaleString()} ֏</span>
-            </div>
-          </div>
-
-          {/* Middle - Move Buttons */}
-          <div className="flex flex-col items-center justify-center gap-1 pt-[200px]">
-            {splitItems.map((item, index) => (
-              <div key={item.item_id} className="h-[49px] flex items-center">
-                {item.rightQty === 0 ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => moveToRight(index)}
-                    disabled={item.leftQty === 0}
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rotate-180"
-                    onClick={() => moveToLeft(index)}
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                )}
+        <div className="space-y-4 py-4">
+          {/* Destination + status for each side; 3rem middle column matches the arrow column below */}
+          <div className="grid grid-cols-[1fr_3rem_1fr]">
+            {/* Left Side */}
+            <div className="space-y-4 min-w-0">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">{"Առաջին տեղափոխում"}</h3>
+                <Badge variant="outline">#{transferId}</Badge>
               </div>
-            ))}
+
+              {/* Left Warehouse */}
+              <div className="space-y-2">
+                <Label>{"Դեպի պահեստ"}</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                      <span className="truncate">
+                        {filteredWarehouses.find(w => w.id === leftWarehouse)?.name || "Ընտրեք պահեստը"}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                    <Command>
+                      <CommandInput placeholder={"Որոնել պահեստ..."} />
+                      <CommandList>
+                        <CommandEmpty>{"Պահեստ չի գտնվել"}</CommandEmpty>
+                        <CommandGroup>
+                          {filteredWarehouses.map((w) => (
+                            <CommandItem key={w.id} value={w.name} onSelect={() => setLeftWarehouse(w.id)}>
+                              <Check className={cn("mr-2 h-4 w-4", leftWarehouse === w.id ? "opacity-100" : "opacity-0")} />
+                              {w.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Left Status */}
+              <div className="space-y-2">
+                <Label>{"Կարգավիճակ"}</Label>
+                <Select value={leftStatus} onValueChange={(v) => setLeftStatus(v as TransferStatus)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div />
+
+            {/* Right Side */}
+            <div className="space-y-4 min-w-0">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">{"Նոր տեղափոխում"}</h3>
+                <Badge variant="secondary">{"Նոր"}</Badge>
+              </div>
+
+              {/* Right Warehouse */}
+              <div className="space-y-2">
+                <Label>{"Դեպի պահեստ"}</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                      <span className="truncate">
+                        {filteredWarehouses.find(w => w.id === rightWarehouse)?.name || "Ընտրեք պահեստը"}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                    <Command>
+                      <CommandInput placeholder={"Որոնել պահեստ..."} />
+                      <CommandList>
+                        <CommandEmpty>{"Պահեստ չի գտնվել"}</CommandEmpty>
+                        <CommandGroup>
+                          {filteredWarehouses.map((w) => (
+                            <CommandItem key={w.id} value={w.name} onSelect={() => setRightWarehouse(w.id)}>
+                              <Check className={cn("mr-2 h-4 w-4", rightWarehouse === w.id ? "opacity-100" : "opacity-0")} />
+                              {w.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Right Status */}
+              <div className="space-y-2">
+                <Label>{"Կարգավիճակ"}</Label>
+                <Select value={rightStatus} onValueChange={(v) => setRightStatus(v as TransferStatus)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
 
-          {/* Right Side */}
-          <div className="space-y-4 min-w-0">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">{"\u0546\u0578\u0580 \u057f\u0565\u0572\u0561\u0583\u0578\u056d\u0578\u0582\u0574"}</h3>
-              <Badge variant="secondary">{"\u0546\u0578\u0580"}</Badge>
-            </div>
+          {/* Items: one table for both sides so the move arrows always line up with their row */}
+          <Table className="table-fixed">
+            <colgroup>
+              <col />
+              <col className="w-[120px]" />
+              <col className="w-[130px]" />
+              <col className="w-12" />
+              <col />
+              <col className="w-[120px]" />
+              <col className="w-[130px]" />
+            </colgroup>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>{"Անվանում"}</TableHead>
+                <TableHead className="text-right">{"Քնկ."}</TableHead>
+                <TableHead className="text-right">{"Ընդամենը"}</TableHead>
+                <TableHead />
+                <TableHead>{"Անվանում"}</TableHead>
+                <TableHead className="text-right">{"Քնկ."}</TableHead>
+                <TableHead className="text-right">{"Ընդամենը"}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {splitItems.map((item, index) => (
+                <TableRow key={item.item_id}>
+                  {/* Left */}
+                  <TableCell className={cn("text-sm break-words", item.leftQty === 0 && "opacity-40")}>{item.name}</TableCell>
+                  <TableCell className={cn("text-right text-sm font-medium", item.leftQty === 0 && "opacity-40")}>
+                    {item.leftQty}
+                    {item.unit && <span className="text-muted-foreground text-xs ml-1">{item.unit}</span>}
+                  </TableCell>
+                  <TableCell className={cn("text-right text-sm", item.leftQty === 0 && "opacity-40")}>
+                    {((item.unit_price + item.unit_vat) * item.leftQty).toLocaleString()} ֏
+                  </TableCell>
 
-            {/* Right Warehouse */}
-            <div className="space-y-2">
-              <Label>{"\u0534\u0565\u057a\u056b \u057a\u0561\u0570\u0565\u057d\u057f"}</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                    <span className="truncate">
-                      {filteredWarehouses.find(w => w.id === rightWarehouse)?.name || "\u0538\u0576\u057f\u0580\u0565\u0584 \u057a\u0561\u0570\u0565\u057d\u057f\u0568"}
-                    </span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start" onWheel={(e) => e.stopPropagation()}>
-                  <Command>
-                    <CommandInput placeholder={"\u0548\u0580\u0578\u0576\u0565\u056c \u057a\u0561\u0570\u0565\u057d\u057f..."} />
-                    <CommandList>
-                      <CommandEmpty>{"\u054a\u0561\u0570\u0565\u057d\u057f \u0579\u056b \u0563\u057f\u0576\u057e\u0565\u056c"}</CommandEmpty>
-                      <CommandGroup>
-                        {filteredWarehouses.map((w) => (
-                          <CommandItem key={w.id} value={w.name} onSelect={() => setRightWarehouse(w.id)}>
-                            <Check className={cn("mr-2 h-4 w-4", rightWarehouse === w.id ? "opacity-100" : "opacity-0")} />
-                            {w.name}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
+                  {/* Move */}
+                  <TableCell className="text-center">
+                    {item.rightQty === 0 ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => moveToRight(index)}
+                        disabled={item.leftQty === 0}
+                      >
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 rotate-180"
+                        onClick={() => moveToLeft(index)}
+                      >
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
 
-            {/* Right Status */}
-            <div className="space-y-2">
-              <Label>{"\u053f\u0561\u0580\u0563\u0561\u057e\u056b\u0573\u0561\u056f"}</Label>
-              <Select value={rightStatus} onValueChange={(v) => setRightStatus(v as TransferStatus)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {statusOptions.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Right Items */}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{"\u0531\u0576\u057e\u0561\u0576\u0578\u0582\u0574"}</TableHead>
-                  <TableHead className="text-right w-[80px]">{"\u0554\u0576\u056f."}</TableHead>
-                  <TableHead className="text-right">{"\u0538\u0576\u0564\u0561\u0574\u0565\u0576\u0568"}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {splitItems.map((item, index) => (
-                  <TableRow key={item.item_id} className={cn("h-[49px]", item.rightQty === 0 && "opacity-40")}>
-                    <TableCell className="text-sm">{item.name}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
+                  {/* Right */}
+                  <TableCell className={cn("text-sm break-words", item.rightQty === 0 && "opacity-40")}>{item.name}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
                       {item.unit && <span className="text-muted-foreground text-xs">{item.unit}</span>}
                       <Input
-                        type="number"
-                        className="w-[70px] h-7 text-sm text-right ml-auto"
-                        value={item.rightQty}
-                        min={0}
-                        max={item.originalQty}
-                        onChange={(e) => updateRightQty(index, Number(e.target.value))}
-                        disabled={item.rightQty === 0}
+                        type="text"
+                        inputMode="decimal"
+                        className="w-[80px] h-7 text-sm text-right"
+                        value={item.rightInput}
+                        onChange={(e) => updateRightQty(index, e.target.value)}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={() => normalizeRightInput(index)}
                       />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right text-sm">
-                      {((item.unit_price + item.unit_vat) * item.rightQty).toLocaleString()} ֏
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-
-            <div className="flex justify-between items-center pt-2 border-t">
-              <span className="font-medium">{"\u0538\u0576\u0564\u0561\u0574\u0565\u0576\u0568"}</span>
-              <span className="font-bold">{calcTotal(splitItems, "right").toLocaleString()} ֏</span>
-            </div>
-          </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className={cn("text-right text-sm", item.rightQty === 0 && "opacity-40")}>
+                    {((item.unit_price + item.unit_vat) * item.rightQty).toLocaleString()} ֏
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter className="bg-transparent">
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={2} className="font-medium">{"Ընդամենը"}</TableCell>
+                <TableCell className="text-right font-bold">{calcTotal(splitItems, "left").toLocaleString()} ֏</TableCell>
+                <TableCell />
+                <TableCell colSpan={2} className="font-medium">{"Ընդամենը"}</TableCell>
+                <TableCell className="text-right font-bold">{calcTotal(splitItems, "right").toLocaleString()} ֏</TableCell>
+              </TableRow>
+            </TableFooter>
+          </Table>
         </div>
 
         <DialogFooter>

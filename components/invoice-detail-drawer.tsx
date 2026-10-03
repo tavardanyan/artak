@@ -304,12 +304,12 @@ export function InvoiceDetailDrawer({ open, onOpenChange, invoiceId }: InvoiceDe
       return <Badge variant="destructive">Մերժված</Badge>
     }
     if (transfer.acepted_at) {
-      return <Badge variant="outline">Ընդունված</Badge>
+      return <Badge variant="success">Ընդունված</Badge>
     }
     if (transfer.delivered_at) {
-      return <Badge variant="secondary">Ընթացիկ</Badge>
+      return <Badge variant="info">Ընթացիկ</Badge>
     }
-    return <Badge variant="default">Սևագիր</Badge>
+    return <Badge variant="warning">Սևագիր</Badge>
   }
 
   return (

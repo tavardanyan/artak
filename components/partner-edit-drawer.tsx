@@ -64,6 +64,7 @@ interface Transfer {
   to: number
   acepted_at: string | null
   rejected_at: string | null
+  delivered_at: string | null
   from_warehouse?: { name: string }
   to_warehouse?: { name: string }
   transfer_item?: Array<{
@@ -286,6 +287,7 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
           to,
           acepted_at,
           rejected_at,
+          delivered_at,
           from_warehouse:warehouse!transfer_from_fkey(name),
           to_warehouse:warehouse!transfer_to_fkey(name),
           transfer_item(qty, unit_price, unit_vat)
@@ -385,14 +387,17 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
     }, 0)
   }
 
-  const getStatusBadge = (accepted: string | null, rejected: string | null) => {
-    if (accepted) {
-      return <Badge variant="default" className="bg-green-600">Հաստատված</Badge>
+  const getStatusBadge = (transfer: Transfer) => {
+    if (transfer.acepted_at) {
+      return <Badge variant="success">Հաստատված</Badge>
     }
-    if (rejected) {
+    if (transfer.rejected_at) {
       return <Badge variant="destructive">Մերժված</Badge>
     }
-    return <Badge variant="secondary">Սպասման մեջ</Badge>
+    if (transfer.delivered_at) {
+      return <Badge variant="info">Ուղարկված</Badge>
+    }
+    return <Badge variant="warning">Սպասման մեջ</Badge>
   }
 
   const getTypeLabel = (type: string) => {
@@ -623,7 +628,7 @@ export function PartnerEditDrawer({ open, onOpenChange, partnerId, onSuccess, pr
                               {formatCurrency(calculateTransferTotal(transfer))}
                             </TableCell>
                             <TableCell className="py-2">
-                              {getStatusBadge(transfer.acepted_at, transfer.rejected_at)}
+                              {getStatusBadge(transfer)}
                             </TableCell>
                           </TableRow>
                         ))}

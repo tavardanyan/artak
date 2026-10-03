@@ -140,12 +140,12 @@ export function TransferDetailDrawer({ open, onOpenChange, transferId }: Transfe
       return <Badge variant="destructive">Մերժված</Badge>
     }
     if (transfer.acepted_at) {
-      return <Badge variant="default" className="bg-green-600">Ընդունված</Badge>
+      return <Badge variant="success">Ընդունված</Badge>
     }
     if (transfer.delivered_at) {
-      return <Badge variant="secondary">Ուղարկված</Badge>
+      return <Badge variant="info">Ուղարկված</Badge>
     }
-    return <Badge variant="outline">Սպասման մեջ</Badge>
+    return <Badge variant="warning">Սպասման մեջ</Badge>
   }
 
   const canSplit = (t: Transfer) => !t.acepted_at && !t.rejected_at
